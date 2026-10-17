@@ -1,0 +1,10 @@
+[package]
+name = "bevy-forest"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = ["2d", "ui"] }
+forest = { path = "../../forest", features = ["cpal"] }
+cpal = "0.18.2"

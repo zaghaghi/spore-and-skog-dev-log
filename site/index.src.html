@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Forest Never Recorded · Spore &amp; Skog devlog</title>
+<meta name="description" content="Eight forest creatures, synthesized live in plain Rust inside a CPAL audio callback, and wired into a Bevy game. Listen in your browser: the page runs the game's own Rust, compiled to WebAssembly.">
+<meta property="og:title" content="A forest never recorded: live creature sounds in Rust, CPAL and Bevy">
+<meta property="og:description" content="Songbirds, a cuckoo, a woodpecker, frogs in the rain, an owl in the fog. No recordings: every call is made as it happens. Hear it in your browser.">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 17a12 10 0 0 1 24 0z' fill='%23d55e00' stroke='%231a1a1a' stroke-width='2'/%3E%3Cpath d='M13 17h6v9a3 3 0 0 1-6 0z' fill='%23fff' stroke='%231a1a1a' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Luckiest+Guy&family=Young+Serif&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="kicker">Spore &amp; Skog devlog · sound</p>
+    <h1>A forest never recorded</h1>
+    <p class="lede">Behind the cards of my game <a href="#the-game">Spore &amp; Skog</a> there is a forest:
+      songbirds, a cuckoo, a woodpecker, a bumblebee, crickets, frogs in the rain, an owl in the fog,
+      ravens. None of them was recorded. Each call is made as it happens, sample by sample, by
+      {{stat lines}} lines of plain Rust running inside a <a href="https://github.com/RustAudio/cpal">CPAL</a>
+      audio callback, and the game's Bevy systems tell it what weather it is.</p>
+    <p class="lede">This page runs that same Rust, compiled to WebAssembly. Step in.</p>
+    <p class="byline">by <a href="https://xaghoul.itch.io">xaghoul</a> · <time datetime="2026-10-17">17 October 2026</time> · Rust, CPAL, Bevy, DSP</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="forest" class="forest-section">
+  <div class="forest" id="live-forest">
+    <div class="forest-head">
+      <button class="big" data-action="enter">Step into the forest</button>
+      <p class="forest-state" id="forest-state">The forest is quiet until you step in. Headphones help: the creatures are soft, and placed left and right.</p>
+    </div>
+    <div class="weather" role="group" aria-label="The weather">
+      <label class="slider rain"><span>Rain</span><output></output><input type="range" min="0" max="100" value="0" data-weather="0"></label>
+      <label class="slider fog"><span>Fog</span><output></output><input type="range" min="0" max="100" value="0" data-weather="1"></label>
+      <label class="slider mild"><span>Mild</span><output></output><input type="range" min="0" max="100" value="100" data-weather="2"></label>
+      <label class="slider"><span>A call every</span><output></output><input type="range" min="15" max="120" value="35" id="every"></label>
+    </div>
+    <div class="odds" id="odds" aria-label="Who is likely to call next"></div>
+    <canvas class="stream-scope" id="stream-scope" aria-hidden="true"></canvas>
+  </div>
+  <p class="aside">The sliders are what the game sends when the weather over the forests changes. The
+    bars are each creature's odds of calling next under that sky. In the game the creatures sit well
+    under the music; alone here, they're brought up 12 dB.</p>
+</section>
+
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#live">Made as they call</a></li>
+    <li><a href="#cpal">One stream, one callback</a></li>
+    <li><a href="#tools">Three small tools</a></li>
+    <li><a href="#whistles">Whistles</a></li>
+    <li><a href="#knocks">Knocks and buzzes</a></li>
+    <li><a href="#throats">Throats</a></li>
+    <li><a href="#distance">Near and far</a></li>
+    <li><a href="#who">Who calls, and when</a></li>
+    <li><a href="#bevy">Into Bevy</a></li>
+    <li><a href="#tests">Testing a forest</a></li>
+    <li><a href="#the-game">The game</a></li>
+  </ol>
+</nav>
+
+<section id="live">
+  <h2>Made as they call</h2>
+  <p>Most game sounds are clips: a buffer made once (recorded, or rendered at start-up) and played
+    back when it's needed. A forest doesn't work that way. A cuckoo that calls exactly the same
+    three times in a row stops being a cuckoo and starts being a sound effect.</p>
+  <p>So the creatures in <em>Spore &amp; Skog</em> aren't clips. Every call starts from a handful of
+    dice (its pitch, how many notes, how fast, how far away, left or right) and is then made a sample
+    at a time, on the audio thread, while you hear it. No two are the same, and there is nothing to
+    store: the whole forest is {{stat kinds}} recipes and a little arithmetic per sample.</p>
+  <p>Live synthesis has a cost the clips don't: it runs against the audio deadline. So the forest is
+    kept small. At most {{stat voices}} creatures call at once, each is a few oscillators and filters,
+    and they sit well under everything else in the mix.</p>
+  <div class="creatures" id="creatures"></div>
+  <figure class="scope" id="call-scope">
+    <canvas class="wave"></canvas>
+    <canvas class="spec"></canvas>
+    <figcaption><span class="scope-name">Press a creature</span><span class="scope-info"></span></figcaption>
+  </figure>
+  <p class="aside">Each press makes a new call of that creature. Here it is rendered first, so the picture
+    above is exactly what you hear; in the game the same code runs live, inside the callback.</p>
+</section>
+
+<section id="cpal">
+  <h2>One stream, one callback</h2>
+  <p><a href="https://crates.io/crates/cpal">CPAL</a> is Rust's cross-platform audio output: CoreAudio,
+    WASAPI, ALSA, Web Audio. It does one thing. It opens a stream and keeps calling your closure with
+    an empty buffer to fill, a few milliseconds' worth at a time, on a real-time thread. Miss the
+    deadline and you hear a click.</p>
+  <p>The game opens exactly one stream and puts a small mixer, the desk, in its callback. The rest
+    of the game never touches the desk's state; it sends it commands over a channel, and the desk
+    reads them at the start of each buffer:</p>
+  {{item forest/src/desk.rs enum Command}}
+  {{item forest/src/desk.rs impl Desk}}
+  <p>Opening the stream is the usual CPAL dance (host, device, config), with one generic function so
+    the same desk can feed a device that wants <code>f32</code>, <code>i16</code>, <code>u16</code> or
+    <code>i32</code>:</p>
+  {{item forest/src/device.rs fn build}}
+  <p>And with that, a forest is a few lines away. This program has no game around it at all:</p>
+  {{file examples/forest-cpal/src/main.rs}}
+</section>
+
+<section id="tools">
+  <h2>Three small tools</h2>
+  <p>Every creature is made from the same three things. First, noise: a xorshift generator, seeded,
+    so the forest is the same every time the game starts, and with helpers for the dice.</p>
+  {{item forest/src/wildlife.rs struct Noise + impl Noise}}
+  <p>Second, a filter. Birds are mostly pure tones, but a woodpecker's knock, a bee's body, a frog's
+    throat and a raven's croak are all <em>something buzzing through a resonance</em>. The tool for that
+    is a state-variable filter, here in its "topology-preserving" form: stable when its frequency
+    sweeps, cheap, and with a low-pass and a band-pass out of the same two lines of state.</p>
+  {{item forest/src/wildlife.rs struct Svf + impl Svf}}
+  <figure class="demo" data-demo="svf"><h3>Try it: noise through the filter</h3></figure>
+  <p>Third, a shape in time. Real calls don't switch on and off; they swell and fade. One smooth bump,
+    a smoothstep up and down, shapes nearly every note in the forest:</p>
+  <div class="split">
+    {{item forest/src/wildlife.rs fn window}}
+    <figure class="plot"><svg id="bump-plot" viewBox="0 0 220 140" role="img" aria-label="The bump: rising smoothly, flat, then falling smoothly."></svg>
+      <figcaption>window(t, 1, 0.3)</figcaption></figure>
+  </div>
+  <p>Each creature is then two pieces of one <code>Call</code>: the dice, rolled once in
+    <code>Call::new</code>, and the sound, made a sample at a time in <code>Call::next</code>.</p>
+</section>
+
+<section id="whistles">
+  <h2>Whistles: songbird, cuckoo, owl</h2>
+  <p>The three that sing share one engine: a list of notes, each a sweep from one pitch to another,
+    played by a single sine. What makes them different is the notes they roll. A songbird throws a
+    quick phrase of short sweeps around one high pitch:</p>
+  {{arm forest/src/wildlife.rs 1 Kind::Song}}
+  <p>The cuckoo calls its falling third, two to four times, and always from a little way off:</p>
+  {{arm forest/src/wildlife.rs 1 Kind::Cuckoo}}
+  <p>And the tawny owl, the fog's creature, calls its "hoooo …… hu, hu-hu-hoooo":</p>
+  {{arm forest/src/wildlife.rs 1 Kind::Owl}}
+  <p>Then all three play through the same arm, each with its own timbre. The songbird is a bare sine
+    in an arch. The cuckoo adds a touch of its octave. The owl breathes, with noise through the filter
+    tuned to its octave, and its last note quavers as it starts:</p>
+  {{arm forest/src/wildlife.rs 2 Kind::Song}}
+  <div class="cue-row" data-kinds="Song Cuckoo Owl"></div>
+</section>
+
+<section id="knocks">
+  <h2>Knocks and buzzes: woodpecker, bumblebee, crickets</h2>
+  <p>A woodpecker's roll is a train of knocks, each a burst of filtered noise with a ring of the dead
+    wood's pitch, coming slightly faster as it goes and dying away:</p>
+  {{arm forest/src/wildlife.rs 1 Kind::Woodpecker}}
+  {{arm forest/src/wildlife.rs 2 Kind::Woodpecker}}
+  <p>The bumblebee is the one creature that moves: it crosses from one side to the other, and its buzz
+    (a sawtooth through the filter's low-pass) falls a little in pitch as it passes, the way a passing
+    car's does.</p>
+  {{arm forest/src/wildlife.rs 1 Kind::Bee}}
+  {{arm forest/src/wildlife.rs 2 Kind::Bee}}
+  <p>Crickets are a high tone gated into chirps of three quick pulses, a few times a second:</p>
+  {{arm forest/src/wildlife.rs 2 Kind::Crickets}}
+  <div class="cue-row" data-kinds="Woodpecker Bee Crickets"></div>
+</section>
+
+<section id="throats">
+  <h2>Throats: frog and raven</h2>
+  <p>These two are made the way voices are: a source and a filter. A frog's croak is a train of
+    clicks (glottal pulses, 26 to 38 a second) each ringing a narrow resonance for the throat and a
+    broader one an octave down for the chest. Nothing in it is a tone; the pitch you hear is the
+    resonance.</p>
+  {{arm forest/src/wildlife.rs 2 Kind::Frog}}
+  <p>The raven took the longest. Shaping a voice like the frog's, with pulses, jitter and the
+    pitch slipping to half itself, kept sounding like a duck, or a kazoo. What finally worked is
+    closer to a synthesizer patch: a low sawtooth (about 110 Hz) thrown up a fifth in 15 ms and
+    falling back over 150 ms, chopped by a fast, nearly square tremolo, 55 times a second, the way
+    a raven's throat flutters, its rate wavering so it never ticks like a machine. Then a strong
+    "ah" at 1 kHz, a nasal edge just above it, and a lift at 2.5 to 4 kHz:</p>
+  {{arm forest/src/wildlife.rs 2 Kind::Raven}}
+  <div class="cue-row" data-kinds="Frog Raven"></div>
+</section>
+
+<section id="distance">
+  <h2>Near and far</h2>
+  <p>Every call, whatever made it, ends the same way. Each one rolled a distance (<code>dull</code>)
+    when it began: far creatures are low-passed, because air and leaves take the highs first, and
+    quieter. Then an equal-power pan puts it left or right, moving if it's the bee:</p>
+  {{lines forest/src/wildlife.rs // Far creatures are duller ~ Some([x * g * angle.cos()}}
+</section>
+
+<section id="who">
+  <h2>Who calls, and when</h2>
+  <p>A forest in the rain shouldn't sound like a forest in the sun. Each creature has a habitat: how
+    much it likes rain, fog, mild weather and a clear sky. Frogs love rain, the owl only comes out in
+    fog, bees and crickets want it mild.</p>
+  {{item forest/src/wildlife.rs impl Kind}}
+  <p>To choose who calls next, the forest weighs each creature by how well it suits the weather about,
+    with one more rule: whoever just called is four times less likely to call again, so you rarely hear
+    the same creature twice running. (The bars at the top of the page are these weights.)</p>
+  {{item forest/src/wildlife.rs fn choose}}
+  <p>And when: every frame, a countdown. When it runs out, the next call comes, and the next wait is
+    drawn between a third and nearly twice the mean, so calls neither queue up nor stall.</p>
+  {{item forest/src/wildlife.rs fn next_frame}}
+  <p>One honest note on the real-time rules: <code>Call::new</code> builds a small list of notes, an
+    allocation on the audio thread. It happens a few times a minute, for a few bytes, and I've let it
+    be. Everything per sample allocates nothing.</p>
+</section>
+
+<section id="bevy">
+  <h2>Into Bevy</h2>
+  <p><em>Spore &amp; Skog</em> is a <a href="https://bevyengine.org">Bevy</a> game, but its sound doesn't
+    use <code>bevy_audio</code>. The audio lives entirely outside the ECS: one CPAL stream, one desk in
+    its callback. Bevy's side is small, and it has three parts.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 760 220" role="img" aria-labelledby="flow-title">
+      <title id="flow-title">Bevy systems call methods on the Sound resource, which sends Commands over a channel to the desk in CPAL's callback on the audio thread, where the wildlife makes each call.</title>
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ink-fill"/></marker></defs>
+      <rect x="12" y="40" width="220" height="140" rx="12" class="box"/>
+      <text x="122" y="68" class="h">Bevy, every frame</text>
+      <text x="122" y="98" class="t">forest system reads</text>
+      <text x="122" y="120" class="t">the weather on the table</text>
+      <text x="122" y="148" class="t">Res&lt;Sound&gt;.wildlife(..)</text>
+      <line x1="236" y1="110" x2="290" y2="110" class="ink" marker-end="url(#arr)"/>
+      <text x="263" y="98" class="s">mpsc</text>
+      <rect x="294" y="62" width="176" height="96" rx="12" class="box accent"/>
+      <text x="382" y="92" class="h">Command</text>
+      <text x="382" y="118" class="t">Wildlife { levels,</text>
+      <text x="382" y="138" class="t">every, gain }</text>
+      <line x1="474" y1="110" x2="512" y2="110" class="ink" marker-end="url(#arr)"/>
+      <rect x="516" y="22" width="232" height="176" rx="12" class="box dashed"/>
+      <text x="632" y="48" class="h">Audio thread</text>
+      <text x="632" y="78" class="t">CPAL data callback</text>
+      <text x="632" y="102" class="t">Desk::render</text>
+      <text x="632" y="126" class="t">Wildlife::next_frame</text>
+      <text x="632" y="150" class="t">≤ {{stat voices}} calls, made live</text>
+      <text x="632" y="182" class="s">no locks · no waiting</text>
+    </svg>
+    <figcaption>Bevy decides <em>what</em> the forest should be; the audio thread decides each sample.</figcaption>
+  </figure>
+
+  <h3>1. The stream is a non-send resource</h3>
+  <p>A <code>cpal::Stream</code> plays for as long as it lives, and it isn't <code>Send</code>. So it's
+    opened once, in an exclusive start-up system, and kept in the world as a non-send resource. Next
+    to it goes a plain <code>Sound</code> resource holding the channel's sender: that is the only way
+    the rest of the game reaches the audio.</p>
+  {{item examples/bevy-forest/src/main.rs impl Plugin for SoundPlugin}}
+  {{item examples/bevy-forest/src/main.rs fn open}}
+  <p>The <code>Sound</code> resource is a thin set of methods that each send one command. If there's no
+    audio device (or the game runs muted) the sender is <code>None</code>, and every method quietly
+    does nothing, so no system ever has to ask.</p>
+  {{item excerpts/sound.rs fn wildlife + fn send}}
+
+  <h3>2. One system decides what the forest sounds like</h3>
+  <p>The interesting part is on the game's side: working out what the forest <em>should</em> be. In
+    <em>Spore &amp; Skog</em> three forests lie on the table, each with weather cards laid over it.
+    This system runs every frame at the table. It takes the weather over all three, or over just one
+    when you lean in to look at that forest's card, in which case the creatures come closer and call
+    more often. It hushes them behind a menu and once the game is over. It sends a command only when
+    something actually changed, remembered in a <code>Local</code>, so the channel carries a handful
+    of messages a game, not sixty a second.</p>
+  {{item excerpts/hooks.rs const TABLE_CALLS + const TABLE_GAIN + const LOOK_CALLS + const LOOK_GAIN + fn forest}}
+  <p>Leaving the table, a system on <code>OnExit</code> sends one last command, and the forest falls
+    quiet. The title screen has its own forest, busier and softer, following the weather that drifts
+    across the logo:</p>
+  {{item excerpts/title.rs const TITLE_CALLS + const TITLE_CALL_GAIN + fn hush}}
+
+  <h3>3. The app's lifecycle</h3>
+  <p>On an iPad, the game can be sent to the home screen at any moment. The stream should stop then,
+    and the synthesis with it. Bevy reports this as <code>AppLifecycle</code> messages:</p>
+  {{item excerpts/sound.rs fn suspend}}
+  <p>That's the whole integration. It's in this repository as a small runnable Bevy app with the
+    game's own numbers, where the keyboard stands in for the table:
+    <code>cargo run -p bevy-forest --release</code>. Keys 1, 2, 3 and 0 set the weather, Space leans
+    in, M opens a "menu".</p>
+  {{item examples/bevy-forest/src/main.rs fn forest}}
+</section>
+
+<section id="tests">
+  <h2>Testing a forest</h2>
+  <p>You can't test that a cuckoo sounds like a cuckoo. You can test that the forest obeys the
+    weather, that every creature is heard and then stops, and that calls come about as often as
+    asked:</p>
+  {{item forest/src/wildlife.rs fn the_weather_picks_the_creatures}}
+  {{item forest/src/wildlife.rs fn calls_come_about_as_often_as_asked}}
+  <p>To actually listen, one more test writes every creature, and forty seconds of each weather's
+    forest, to WAV files: <code>FOREST_WAV=/tmp/forest cargo test -p forest</code>.</p>
+</section>
+
+<section id="the-game" class="game">
+  <h2 class="shout">Hear it where it lives</h2>
+  <p class="note">The code on this page is open-sourced from <b>Spore &amp; Skog: The Divine Forage</b>,
+    a quick card duel of weather and secret mushroom spots.</p>
+  <p>Two forest gods share one sky over three Swedish forests. Lay rain, fog or mild weather over a
+    forest, then harvest your hidden mushroom spots when the weather over them is right, before your
+    Rival does. First to 35 mushrooms wins, and the forest you've been listening to is there the whole
+    time, changing with every card.</p>
+  {{gallery}}
+  <p class="cta"><a class="big" id="itch-link" href="https://xaghoul.itch.io/spore-and-skog">Play Spore &amp; Skog on itch.io</a></p>
+  <p class="small">Made with Rust and Bevy. The forest's code, the desk and both examples are on
+    <a href="https://github.com/zaghaghi/spore-and-skog-dev-log">GitHub</a> under the MIT licence.</p>
+</section>
+
+</main>
+
+<footer class="wrap foot">
+  <p>Built with the game's own <code>wildlife.rs</code>, compiled to WebAssembly and played by an
+    AudioWorklet, the browser's version of a CPAL callback. No creatures were recorded.</p>
+  <p>The forest as of the game on {{game synced}}.</p>
+</footer>
+</body>
+</html>

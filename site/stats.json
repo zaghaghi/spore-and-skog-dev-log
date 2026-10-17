@@ -1,0 +1,15 @@
+{
+  "kinds": 8,
+  "voices": 3,
+  "lines": 574,
+  "creatures": [
+    {"kind": "Song", "ms": 311, "hash": "af1adc9a8b4d96b5"},
+    {"kind": "Cuckoo", "ms": 2179, "hash": "b3954cf8dfbf59aa"},
+    {"kind": "Woodpecker", "ms": 809, "hash": "81b73910b63cae48"},
+    {"kind": "Bee", "ms": 2661, "hash": "3f004ab6ba90ef7d"},
+    {"kind": "Crickets", "ms": 2516, "hash": "c60f5d745f0c6ef8"},
+    {"kind": "Frog", "ms": 1239, "hash": "fd6d8a1bf4c5c267"},
+    {"kind": "Owl", "ms": 2771, "hash": "4e25773402b78409"},
+    {"kind": "Raven", "ms": 1149, "hash": "17c580f56b70fad8"}
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "page": "https://xaghoul.itch.io/spore-and-skog",
+  "pictures": [
+    {
+      "file": "img/itch/banner-01.webp",
+      "kind": "banner",
+      "width": "1400",
+      "height": "438",
+      "source": "https://img.itch.zone/aW1nLzMwODg3MTc1LnBuZw==/original/2GPhAO.png"
+    },
+    {
+      "file": "img/itch/screenshot-01.webp",
+      "kind": "screenshot",
+      "width": "1400",
+      "height": "788",
+      "source": "https://img.itch.zone/aW1hZ2UvNTEwMTkwMC8zMDgwMjY5NS5wbmc=/original/v6TwsN.png"
+    },
+    {
+      "file": "img/itch/screenshot-02.gif",
+      "kind": "screenshot",
+      "width": "800",
+      "height": "450",
+      "source": "https://img.itch.zone/aW1hZ2UvNTEwMTkwMC8zMDgwMjcxMC5naWY=/original/cczzch.gif"
+    },
+    {
+      "file": "img/itch/screenshot-03.gif",
+      "kind": "screenshot",
+      "width": "800",
+      "height": "450",
+      "source": "https://img.itch.zone/aW1hZ2UvNTEwMTkwMC8zMDgwMjcxOS5naWY=/original/%2Fqt%2Fgv.gif"
+    },
+    {
+      "file": "img/itch/screenshot-04.webp",
+      "kind": "screenshot",
+      "width": "1400",
+      "height": "788",
+      "source": "https://img.itch.zone/aW1hZ2UvNTEwMTkwMC8zMDgwMjcyNy5wbmc=/original/2OjOXB.png"
+    },
+    {
+      "file": "img/itch/screenshot-05.webp",
+      "kind": "screenshot",
+      "width": "1400",
+      "height": "788",
+      "source": "https://img.itch.zone/aW1hZ2UvNTEwMTkwMC8zMDgwMjczOS5wbmc=/original/lGD2fe.png"
+    }
+  ]
+}

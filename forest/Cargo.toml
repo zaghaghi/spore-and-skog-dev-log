@@ -1,0 +1,17 @@
+[package]
+name = "forest"
+version = "0.1.0"
+edition = "2024"
+description = "Spore & Skog's forest creatures, synthesized live in plain Rust"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+# Open a real audio output (the examples); the page's WebAssembly goes without.
+cpal = ["dep:cpal"]
+
+[dependencies]
+cpal = { version = "0.18.2", optional = true }

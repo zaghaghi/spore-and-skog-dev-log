@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = ["forest", "examples/forest-cpal", "examples/bevy-forest"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# Bevy is slow to build unoptimised and slow to run unoptimised: optimise
+# the dependencies even in debug builds.
+[profile.dev.package."*"]
+opt-level = 2
