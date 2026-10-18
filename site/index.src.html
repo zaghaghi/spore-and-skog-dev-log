@@ -107,22 +107,19 @@
   <p>The game opens exactly one stream and puts a small mixer, the desk, in its callback. The rest
     of the game never touches the desk's state; it sends it commands over a channel, and the desk
     reads them at the start of each buffer. Last in its chain is a <a class="term" href="#w-limiter">soft
-    limiter</a>, so a pile-up of calls never clips:</p>
-  {{item forest/src/desk.rs enum Command}}
-  {{item forest/src/desk.rs impl Desk}}
-  <p>Opening the stream is the usual CPAL dance (host, device, config), with one generic function so
-    the same desk can feed a device that wants <code>f32</code>, <code>i16</code>, <code>u16</code> or
-    <code>i32</code>:</p>
-  {{item forest/src/device.rs fn build}}
-  <p>And with that, a forest is a few lines away. This program has no game around it at all:</p>
-  {{file examples/forest-cpal/src/main.rs}}
+    limiter</a>, so a pile-up of calls never clips.</p>
+  <p>Opening the stream is the usual CPAL routine (host, device, config), with one generic function
+    so the same desk can feed whatever sample format the device wants. It's all in
+    <a href="{{src forest/src/desk.rs}}"><code>desk.rs</code></a> and
+    <a href="{{src forest/src/device.rs}}"><code>device.rs</code></a>, and with those a forest is
+    <a href="{{src examples/forest-cpal/src/main.rs}}">a short program</a> with no game around it at
+    all: open the stream, tell it the weather, listen.</p>
 </section>
 
 <section id="tools">
   <h2>Three small tools</h2>
   <p>Every creature is made from the same three things. First, <a class="term" href="#w-noise">noise</a>: a <a href="https://www.jstatsoft.org/article/view/v008i14">xorshift</a> generator, seeded,
     so the forest is the same every time the game starts, and with helpers for the dice.</p>
-  {{item forest/src/wildlife.rs struct Noise + impl Noise}}
   <p>Second, a filter. Birds are mostly pure tones, but a woodpecker's knock, a bee's body, a frog's
     throat and a raven's croak are all <em>something buzzing through a <a class="term" href="#w-filter">resonance</a></em>. The tool for that
     is a <a class="term" href="#w-svf">state-variable filter</a>, here in its "topology-preserving" form: stable when its frequency
@@ -130,12 +127,11 @@
     coefficients are Andrew Simper's
     (<a href="https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf">Cytomic, 2013</a>), from the
     method Vadim Zavalishin sets out in <em>The Art of VA Filter Design</em>.</p>
-  {{item forest/src/wildlife.rs struct Svf + impl Svf}}
   <figure class="demo" data-demo="svf"><h3>Try it: noise through the filter</h3></figure>
   <p>Third, a shape in time. Real calls don't switch on and off; they swell and fade. One smooth bump,
     a <a class="term" href="#w-smoothstep">smoothstep</a> up and down, shapes nearly every note in the forest:</p>
   <div class="split">
-    {{item forest/src/wildlife.rs fn window}}
+    {{item forest/src/wildlife.rs fn window || The bump, in Rust}}
     <figure class="plot"><svg id="bump-plot" viewBox="0 0 220 140" role="img" aria-label="The bump: rising smoothly, flat, then falling smoothly."></svg>
       <figcaption>window(t, 1, 0.3)</figcaption></figure>
   </div>
@@ -145,40 +141,49 @@
     let go: a creature's call is a gesture of known length, not a note someone holds. In signal
     processing terms it is a tapered window, of the same family as a
     <a href="https://en.wikipedia.org/wiki/Window_function#Tukey_window">Tukey window</a>.</p>
-  <p>Each creature is then two pieces of one <code>Call</code>: the dice, rolled once in
-    <code>Call::new</code>, and the sound, made a sample at a time in <code>Call::next</code>.</p>
+  <p>With those three, every creature is the same four steps: a <b>source</b> (a tone, a buzz, a
+    click, noise), a <b>shape in time</b> (when it sounds and how it swells), a <b>filter</b> that
+    colours it, and a <b>place</b> in the forest, near or far, left or right. The dice for all four
+    are rolled once, when a call begins; then the sound is made a sample at a time. The rest of this
+    page is eight such recipes.</p>
 </section>
 
 <section id="whistles">
   <h2>Whistles: songbird, cuckoo, owl</h2>
   <p>The three that sing share one engine: a list of notes, each a sweep from one pitch to another,
     played by a single sine. What makes them different is the notes they roll. A songbird throws a
-    quick phrase of short sweeps around one high pitch:</p>
-  {{arm forest/src/wildlife.rs 1 Kind::Song}}
-  <p>The cuckoo calls its falling third, two to four times, and always from a little way off:</p>
-  {{arm forest/src/wildlife.rs 1 Kind::Cuckoo}}
-  <p>And the tawny owl, the fog's creature, calls its "hoooo …… hu, hu-hu-hoooo":</p>
-  {{arm forest/src/wildlife.rs 1 Kind::Owl}}
-  <p>Then all three play through the same arm, each with its own timbre. The songbird is a bare sine
-    in an arch. The cuckoo adds a touch of its octave. The owl breathes, with noise through the filter
-    tuned to its octave, and its last note quavers as it starts:</p>
-  {{arm forest/src/wildlife.rs 2 Kind::Song}}
+    quick phrase of short sweeps around one high pitch. The cuckoo calls its falling third, two to
+    four times, always from a little way off. The tawny owl, the fog's creature, calls its
+    "hoooo …… hu, hu-hu-hoooo".</p>
+  <p>Each also has its own timbre. The songbird is a bare sine in an arch. The cuckoo adds a touch of
+    its octave. The owl breathes, with noise through the filter tuned to its octave, and its last note
+    quavers as it starts.</p>
+  <figure class="recipes" aria-label="The whistles' recipes">
+    {{recipehead}}
+    {{recipe Songbird | a sine, sweeping up or down 400–1300 Hz from 2.6–4.2 kHz | 2 to 6 quick notes, each an arch | none: a bare tone | near or far, left or right}}
+    {{recipe Cuckoo | a sine at 600–700 Hz, with a touch of its octave | "cu-ckoo", a falling third, 2 to 4 times | none | always a little way off}}
+    {{recipe Tawny owl | a sine at 380–440 Hz, and breath | "hoooo … hu, hu-hu-hoooo", the last note quavering | breath through a band an octave up | further off, in the fog}}
+  </figure>
+  {{arm forest/src/wildlife.rs 2 Kind::Song || The three voices, in Rust}}
   <div class="cue-row" data-kinds="Song Cuckoo Owl"></div>
 </section>
 
 <section id="knocks">
   <h2>Knocks and buzzes: woodpecker, bumblebee, crickets</h2>
   <p>A woodpecker's roll is a train of knocks, each a burst of filtered noise with a ring of the dead
-    wood's pitch, coming slightly faster as it goes and dying away:</p>
-  {{arm forest/src/wildlife.rs 1 Kind::Woodpecker}}
-  {{arm forest/src/wildlife.rs 2 Kind::Woodpecker}}
+    wood's pitch, coming slightly faster as it goes and dying away.</p>
   <p>The bumblebee is the one creature that moves: it crosses from one side to the other, and its buzz
     (a <a class="term" href="#w-saw">sawtooth</a> through the filter's low-pass) falls a little in pitch as it passes (<a class="term" href="#w-doppler">the Doppler effect</a>), the way a passing
     car's does.</p>
-  {{arm forest/src/wildlife.rs 1 Kind::Bee}}
-  {{arm forest/src/wildlife.rs 2 Kind::Bee}}
-  <p>Crickets are a high tone gated into chirps of three quick pulses, a few times a second:</p>
-  {{arm forest/src/wildlife.rs 2 Kind::Crickets}}
+  <p>Crickets are a high tone gated into chirps of three quick pulses, a few times a second.</p>
+  <figure class="recipes" aria-label="The knocks' and buzzes' recipes">
+    {{recipehead}}
+    {{recipe Woodpecker | a click of noise, and a 600–900 Hz ring of dead wood | 12 to 22 knocks, 15–22 a second, quickening and fading | the click through a band at 1.6 kHz | near or far, left or right}}
+    {{recipe Bumblebee | a sawtooth at 140–190 Hz, with a slow vibrato | swells over 2–3.4 s, its pitch falling as it passes | a low-pass at 700 Hz | close, crossing from one side to the other}}
+    {{recipe Crickets | a pure tone at 4.1–4.7 kHz | chirps of 3 pulses, about 3 a second, for 2.5–4 s | none | near or far, left or right}}
+  </figure>
+  <p class="aside">All eight recipes are in <a href="{{src forest/src/wildlife.rs}}"><code>wildlife.rs</code></a>:
+    the dice in <code>Call::new</code>, the sound in <code>Call::next</code>.</p>
   <div class="cue-row" data-kinds="Woodpecker Bee Crickets"></div>
 </section>
 
@@ -188,7 +193,6 @@
     clicks (<a class="term" href="#w-glottal">glottal pulses</a>, 26 to 38 a second) each ringing a narrow resonance for the throat and a
     broader one an octave down for the chest. Nothing in it is a tone; the pitch you hear is the
     resonance.</p>
-  {{arm forest/src/wildlife.rs 2 Kind::Frog}}
   <p>The raven took the longest. Shaping a voice like the frog's, with pulses, <a class="term" href="#w-jitter">jitter</a> and the
     pitch slipping to half itself, kept sounding like a duck, or a kazoo. What finally worked is a
     synthesizer patch, from <a href="https://www.reddit.com/r/synthrecipes/comments/lt10s5/can_anyone_explain_how_to_achieve_a_synthetic/">a
@@ -196,8 +200,13 @@
     recording of real ravens</a>: a low sawtooth (about 110 Hz) <a class="term" href="#w-pitch-env">thrown up a fifth</a> in 15 ms and
     falling back over 150 ms, chopped by a fast, nearly square <a class="term" href="#w-tremolo">tremolo</a>, 55 times a second, the way
     a raven's throat flutters, its rate wavering so it never ticks like a machine. Then a strong
-    "ah" <a class="term" href="#w-formant">formant</a> at 1 kHz, a nasal edge just above it, and a lift at 2.5 to 4 kHz:</p>
-  {{arm forest/src/wildlife.rs 2 Kind::Raven}}
+    "ah" <a class="term" href="#w-formant">formant</a> at 1 kHz, a nasal edge just above it, and a lift at 2.5 to 4 kHz.</p>
+  <figure class="recipes" aria-label="The throats' recipes">
+    {{recipehead}}
+    {{recipe Frog | clicks: glottal pulses, 26–38 a second | 2 to 4 croaks, a third of a second each | a narrow throat at 380–520 Hz, a broad chest an octave down | near or far, left or right}}
+    {{recipe Raven | a sawtooth near 110 Hz, thrown up a fifth and falling back | 1 to 3 croaks of 0.4 s, chopped by a 55 Hz tremolo | "ah" at 1 kHz, a nasal edge at 1.5 kHz, a lift at 2.5–4 kHz | near or far, left or right}}
+  </figure>
+  {{arm forest/src/wildlife.rs 2 Kind::Raven || The raven, in Rust}}
   <div class="cue-row" data-kinds="Frog Raven"></div>
 </section>
 
@@ -205,8 +214,8 @@
   <h2>Near and far</h2>
   <p>Every call, whatever made it, ends the same way. Each one rolled a distance (<code>dull</code>)
     when it began: far creatures are low-passed, because air and leaves take the highs first, and
-    quieter. Then an <a class="term" href="#w-pan">equal-power pan</a> puts it left or right, moving if it's the bee:</p>
-  {{lines forest/src/wildlife.rs // Far creatures are duller ~ Some([x * g * angle.cos()}}
+    quieter. Then an <a class="term" href="#w-pan">equal-power pan</a> puts it left or right, moving if it's the bee.
+    That's the <b>place</b> column in every recipe above.</p>
 </section>
 
 <section id="who">
@@ -214,14 +223,12 @@
   <p>A forest in the rain shouldn't sound like a forest in the sun. Each creature has a habitat: how
     much it likes rain, fog, mild weather and a clear sky. Frogs love rain, the owl only comes out in
     fog, bees and crickets want it mild.</p>
-  {{item forest/src/wildlife.rs impl Kind}}
   <p>To choose who calls next, the forest weighs each creature by how well it suits the weather about,
     with one more rule: whoever just called is four times less likely to call again, so you rarely hear
     the same creature twice running. (The bars at the top of the page are these weights.)</p>
-  {{item forest/src/wildlife.rs fn choose}}
+  {{item forest/src/wildlife.rs fn choose || Who calls next, in Rust}}
   <p>And when: every frame, a countdown. When it runs out, the next call comes, and the next wait is
     drawn between a third and nearly twice the mean, so calls neither queue up nor stall.</p>
-  {{item forest/src/wildlife.rs fn next_frame}}
   <p>One honest note on the real-time rules: <code>Call::new</code> builds a small list of notes, an
     allocation on the audio thread. It happens a few times a minute, for a few bytes, and I've let it
     be. Everything per sample allocates nothing.</p>
@@ -265,12 +272,10 @@
     opened once, in an exclusive start-up system, and kept in the world as a non-send resource. Next
     to it goes a plain <code>Sound</code> resource holding the channel's sender: that is the only way
     the rest of the game reaches the audio.</p>
-  {{item examples/bevy-forest/src/main.rs impl Plugin for SoundPlugin}}
-  {{item examples/bevy-forest/src/main.rs fn open}}
   <p>The <code>Sound</code> resource is a thin set of methods that each send one command. If there's no
     audio device (or the game runs muted) the sender is <code>None</code>, and every method quietly
     does nothing, so no system ever has to ask.</p>
-  {{item excerpts/sound.rs fn wildlife + fn send}}
+  {{item excerpts/sound.rs fn wildlife + fn send || The game's Sound resource, in Rust}}
 
   <h3>2. One system decides what the forest sounds like</h3>
   <p>The interesting part is on the game's side: working out what the forest <em>should</em> be. In
@@ -280,30 +285,28 @@
     more often. It hushes them behind a menu and once the game is over. It sends a command only when
     something actually changed, remembered in a <code>Local</code>, so the channel carries a handful
     of messages a game, not sixty a second.</p>
-  {{item excerpts/hooks.rs const TABLE_CALLS + const TABLE_GAIN + const LOOK_CALLS + const LOOK_GAIN + fn forest}}
+  {{item excerpts/hooks.rs const TABLE_CALLS + const TABLE_GAIN + const LOOK_CALLS + const LOOK_GAIN + fn forest || The game's forest system, in Rust}}
   <p>Leaving the table, a system on <code>OnExit</code> sends one last command, and the forest falls
-    quiet. The title screen has its own forest, busier and softer, following the weather that drifts
-    across the logo:</p>
-  {{item excerpts/title.rs const TITLE_CALLS + const TITLE_CALL_GAIN + fn hush}}
+    quiet. The title screen has its own forest, busier and softer (a call every 4.5 seconds or so,
+    against the table's 9), following the weather that drifts across the logo.</p>
 
   <h3>3. The app's lifecycle</h3>
   <p>On an iPad, the game can be sent to the home screen at any moment. The stream should stop then,
-    and the synthesis with it. Bevy reports this as <code>AppLifecycle</code> messages:</p>
-  {{item excerpts/sound.rs fn suspend}}
+    and the synthesis with it. Bevy reports this as <code>AppLifecycle</code> messages, and one small
+    system pauses the stream when the app goes away and plays it again when it's back.</p>
   <p>That's the whole integration. It's in this repository as a small runnable Bevy app with the
     game's own numbers, where the keyboard stands in for the table:
     <code>cargo run -p bevy-forest --release</code>. Keys 1, 2, 3 and 0 set the weather, Space leans
-    in, M opens a "menu".</p>
-  {{item examples/bevy-forest/src/main.rs fn forest}}
+    in, M opens a "menu". It all fits in <a href="{{src examples/bevy-forest/src/main.rs}}">one
+    file</a>.</p>
 </section>
 
 <section id="tests">
   <h2>Testing a forest</h2>
   <p>You can't test that a cuckoo sounds like a cuckoo. You can test that the forest obeys the
-    weather, that every creature is heard and then stops, and that calls come about as often as
-    asked:</p>
-  {{item forest/src/wildlife.rs fn the_weather_picks_the_creatures}}
-  {{item forest/src/wildlife.rs fn calls_come_about_as_often_as_asked}}
+    weather (no owls on a sunny day, frogs in the rain), that every creature is heard and then stops,
+    and that calls come about as often as asked. The tests are at the end of
+    <a href="{{src forest/src/wildlife.rs}}"><code>wildlife.rs</code></a>.</p>
   <p>To actually listen, one more test writes every creature, and forty seconds of each weather's
     forest, to WAV files: <code>FOREST_WAV=/tmp/forest cargo test -p forest</code>.</p>
 </section>

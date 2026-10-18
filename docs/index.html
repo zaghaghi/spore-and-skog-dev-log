@@ -107,166 +107,19 @@
   <p>The game opens exactly one stream and puts a small mixer, the desk, in its callback. The rest
     of the game never touches the desk's state; it sends it commands over a channel, and the desk
     reads them at the start of each buffer. Last in its chain is a <a class="term" href="#w-limiter">soft
-    limiter</a>, so a pile-up of calls never clips:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/desk.rs">forest/src/desk.rs</a></figcaption><pre><code><span class="c">/// What the game asks of the desk.</span>
-<span class="k">pub</span> <span class="k">enum</span> <span class="t">Command</span> {
-    <span class="c">/// The creatures about: the weather (rain, fog, mild, 0 to 1 each), how</span>
-    <span class="c">/// often one calls (mean seconds, 0 for none), and how loud.</span>
-    <span class="t">Wildlife</span> {
-        levels: [<span class="t">f32</span>; <span class="n">3</span>],
-        every: <span class="t">f32</span>,
-        gain: <span class="t">f32</span>,
-    },
-    <span class="c">/// One creature, now (the game uses this only in its tests; the devlog</span>
-    <span class="c">/// and the examples use it to call one up).</span>
-    <span class="t">Call</span>(<span class="t">Kind</span>),
-    <span class="c">/// The bus's gain, 0 to 1 (the game's effects volume).</span>
-    <span class="t">Level</span>(<span class="t">f32</span>),
-}</code></pre></figure>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/desk.rs">forest/src/desk.rs</a></figcaption><pre><code><span class="k">impl</span> <span class="t">Desk</span> {
-    <span class="k">pub</span> <span class="k">fn</span> new(rate: <span class="t">u32</span>, commands: <span class="t">Receiver</span>&lt;<span class="t">Command</span>&gt;) -&gt; <span class="k">Self</span> {
-        <span class="k">let</span> rate = rate <span class="k">as</span> <span class="t">f32</span>;
-        <span class="k">Self</span> {
-            commands,
-            wildlife: <span class="t">Wildlife</span>::new(rate),
-            <span class="c">// Silent at first, fading in: no click as the stream opens.</span>
-            level: <span class="n">0.0</span>,
-            level_to: <span class="n">1.0</span>,
-            k: <span class="n">1.0</span> - (-<span class="t">GLIDE</span> / rate).exp(),
-        }
-    }
-
-    <span class="k">fn</span> take_commands(&amp;<span class="k">mut</span> <span class="k">self</span>) {
-        <span class="k">while</span> <span class="k">let</span> <span class="t">Ok</span>(command) = <span class="k">self</span>.commands.try_recv() {
-            <span class="k">match</span> command {
-                <span class="t">Command</span>::<span class="t">Wildlife</span> {
-                    levels,
-                    every,
-                    gain,
-                } =&gt; <span class="k">self</span>.wildlife.set(levels, every, gain),
-                <span class="t">Command</span>::<span class="t">Call</span>(kind) =&gt; <span class="k">self</span>.wildlife.call(kind),
-                <span class="t">Command</span>::<span class="t">Level</span>(to) =&gt; <span class="k">self</span>.level_to = to,
-            }
-        }
-    }
-
-    <span class="c">/// Fill `out`, interleaved with `channels` to a frame: what CPAL's data</span>
-    <span class="c">/// callback calls.</span>
-    <span class="k">pub</span> <span class="k">fn</span> render(&amp;<span class="k">mut</span> <span class="k">self</span>, out: &amp;<span class="k">mut</span> [<span class="t">f32</span>], channels: <span class="t">usize</span>) {
-        <span class="k">self</span>.take_commands();
-        <span class="k">for</span> frame <span class="k">in</span> out.chunks_mut(channels.max(<span class="n">1</span>)) {
-            <span class="k">let</span> [l, r] = <span class="k">self</span>.next_frame();
-            <span class="k">match</span> frame {
-                [mono] =&gt; *mono = <span class="n">0.5</span> * (l + r),
-                [a, b, rest @ ..] =&gt; {
-                    *a = l;
-                    *b = r;
-                    rest.fill(<span class="n">0.0</span>);
-                }
-                [] =&gt; {}
-            }
-        }
-    }
-
-    <span class="k">fn</span> next_frame(&amp;<span class="k">mut</span> <span class="k">self</span>) -&gt; [<span class="t">f32</span>; <span class="n">2</span>] {
-        <span class="k">self</span>.level += (<span class="k">self</span>.level_to - <span class="k">self</span>.level) * <span class="k">self</span>.k;
-        <span class="k">let</span> life = <span class="k">self</span>.wildlife.next_frame();
-        life.map(|x| limit(x * <span class="k">self</span>.level))
-    }
-}</code></pre></figure>
-  <p>Opening the stream is the usual CPAL dance (host, device, config), with one generic function so
-    the same desk can feed a device that wants <code>f32</code>, <code>i16</code>, <code>u16</code> or
-    <code>i32</code>:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/device.rs">forest/src/device.rs</a></figcaption><pre><code><span class="k">fn</span> build&lt;<span class="t">T</span>: <span class="t">SizedSample</span> + <span class="t">FromSample</span>&lt;<span class="t">f32</span>&gt;&gt;(
-    device: &amp;<span class="t">Device</span>,
-    config: <span class="t">StreamConfig</span>,
-    <span class="k">mut</span> desk: <span class="t">Desk</span>,
-) -&gt; <span class="t">Result</span>&lt;<span class="t">Stream</span>, <span class="t">String</span>&gt; {
-    <span class="k">let</span> channels = config.channels <span class="k">as</span> <span class="t">usize</span>;
-    <span class="k">let</span> <span class="k">mut</span> scratch = <span class="t">Vec</span>::&lt;<span class="t">f32</span>&gt;::new();
-    device
-        .build_output_stream(
-            config,
-            <span class="k">move</span> |data: &amp;<span class="k">mut</span> [<span class="t">T</span>], _| {
-                scratch.resize(data.len(), <span class="n">0.0</span>);
-                desk.render(&amp;<span class="k">mut</span> scratch, channels);
-                <span class="k">for</span> (d, s) <span class="k">in</span> data.iter_mut().zip(&amp;scratch) {
-                    *d = <span class="t">T</span>::from_sample(*s);
-                }
-            },
-            |e| <span class="m">eprintln!</span>(<span class="s">"audio: {e}"</span>),
-            <span class="t">None</span>,
-        )
-        .map_err(|e| e.to_string())
-}</code></pre></figure>
-  <p>And with that, a forest is a few lines away. This program has no game around it at all:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/examples/forest-cpal/src/main.rs">examples/forest-cpal/src/main.rs</a></figcaption><pre><code><span class="c">//! The forest, through CPAL, with no game around it: one stream, the desk in</span>
-<span class="c">//! its callback, and this thread telling it what weather it is.</span>
-<span class="c">//!</span>
-<span class="c">//!     cargo run -p forest-cpal --release            # a minute of each weather</span>
-<span class="c">//!     cargo run -p forest-cpal --release -- fog     # just the fog</span>
-<span class="c">//!     cargo run -p forest-cpal --release -- Owl     # one creature</span>
-
-<span class="k">use</span> std::{sync::mpsc, thread, time::<span class="t">Duration</span>};
-
-<span class="k">use</span> forest::{desk::<span class="t">Command</span>, wildlife::<span class="t">Kind</span>};
-
-<span class="k">fn</span> main() -&gt; <span class="t">Result</span>&lt;(), <span class="t">String</span>&gt; {
-    <span class="k">let</span> (desk, commands) = mpsc::channel();
-    <span class="c">// The stream plays for as long as it lives.</span>
-    <span class="k">let</span> _stream = forest::device::open(commands)?;
-
-    <span class="k">let</span> weathers = [
-        (<span class="s">"clear"</span>, [<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">0.0</span>]),
-        (<span class="s">"rain"</span>, [<span class="n">1.0</span>, <span class="n">0.0</span>, <span class="n">0.0</span>]),
-        (<span class="s">"fog"</span>, [<span class="n">0.0</span>, <span class="n">1.0</span>, <span class="n">0.0</span>]),
-        (<span class="s">"mild"</span>, [<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">1.0</span>]),
-    ];
-    <span class="k">let</span> arg = std::env::args().nth(<span class="n">1</span>);
-    <span class="k">if</span> <span class="k">let</span> <span class="t">Some</span>(kind) = <span class="t">Kind</span>::<span class="t">ALL</span>.iter().find(|k| arg.as_deref() == <span class="t">Some</span>(&amp;<span class="m">format!</span>(<span class="s">"{k:?}"</span>))) {
-        <span class="m">println!</span>(<span class="s">"{kind:?}"</span>);
-        desk.send(<span class="t">Command</span>::<span class="t">Call</span>(*kind)).ok();
-        thread::sleep(<span class="t">Duration</span>::from_secs(<span class="n">5</span>));
-        <span class="k">return</span> <span class="t">Ok</span>(());
-    }
-    <span class="k">for</span> (name, levels) <span class="k">in</span> weathers {
-        <span class="k">if</span> arg.as_ref().is_some_and(|a| a != name) {
-            <span class="k">continue</span>;
-        }
-        <span class="m">println!</span>(<span class="s">"{name}: a creature every 2.5 s or so"</span>);
-        desk.send(<span class="t">Command</span>::<span class="t">Wildlife</span> { levels, every: <span class="n">2.5</span>, gain: <span class="n">1.0</span> }).ok();
-        thread::sleep(<span class="t">Duration</span>::from_secs(<span class="k">if</span> arg.is_some() { <span class="n">60</span> } <span class="k">else</span> { <span class="n">20</span> }));
-    }
-    <span class="t">Ok</span>(())
-}</code></pre></figure>
+    limiter</a>, so a pile-up of calls never clips.</p>
+  <p>Opening the stream is the usual CPAL routine (host, device, config), with one generic function
+    so the same desk can feed whatever sample format the device wants. It's all in
+    <a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/desk.rs"><code>desk.rs</code></a> and
+    <a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/device.rs"><code>device.rs</code></a>, and with those a forest is
+    <a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/examples/forest-cpal/src/main.rs">a short program</a> with no game around it at
+    all: open the stream, tell it the weather, listen.</p>
 </section>
 
 <section id="tools">
   <h2>Three small tools</h2>
   <p>Every creature is made from the same three things. First, <a class="term" href="#w-noise">noise</a>: a <a href="https://www.jstatsoft.org/article/view/v008i14">xorshift</a> generator, seeded,
     so the forest is the same every time the game starts, and with helpers for the dice.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="c">/// White noise (xorshift).</span>
-<span class="k">pub</span> <span class="k">struct</span> <span class="t">Noise</span>(<span class="k">pub</span> <span class="t">u32</span>);
-
-<span class="k">impl</span> <span class="t">Noise</span> {
-    <span class="k">pub</span> <span class="k">fn</span> next(&amp;<span class="k">mut</span> <span class="k">self</span>) -&gt; <span class="t">f32</span> {
-        <span class="k">let</span> <span class="k">mut</span> x = <span class="k">self</span>.<span class="n">0</span>;
-        x ^= x &lt;&lt; <span class="n">13</span>;
-        x ^= x &gt;&gt; <span class="n">17</span>;
-        x ^= x &lt;&lt; <span class="n">5</span>;
-        <span class="k">self</span>.<span class="n">0</span> = x;
-        (x &gt;&gt; <span class="n">8</span>) <span class="k">as</span> <span class="t">f32</span> / (<span class="n">1</span> &lt;&lt; <span class="n">23</span>) <span class="k">as</span> <span class="t">f32</span> - <span class="n">1.0</span>
-    }
-
-    <span class="c">/// 0 to 1.</span>
-    <span class="k">pub</span> <span class="k">fn</span> unit(&amp;<span class="k">mut</span> <span class="k">self</span>) -&gt; <span class="t">f32</span> {
-        <span class="n">0.5</span> + <span class="n">0.5</span> * <span class="k">self</span>.next()
-    }
-
-    <span class="k">pub</span> <span class="k">fn</span> between(&amp;<span class="k">mut</span> <span class="k">self</span>, a: <span class="t">f32</span>, b: <span class="t">f32</span>) -&gt; <span class="t">f32</span> {
-        a + (b - a) * <span class="k">self</span>.unit()
-    }
-}</code></pre></figure>
   <p>Second, a filter. Birds are mostly pure tones, but a woodpecker's knock, a bee's body, a frog's
     throat and a raven's croak are all <em>something buzzing through a <a class="term" href="#w-filter">resonance</a></em>. The tool for that
     is a <a class="term" href="#w-svf">state-variable filter</a>, here in its "topology-preserving" form: stable when its frequency
@@ -274,34 +127,11 @@
     coefficients are Andrew Simper's
     (<a href="https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf">Cytomic, 2013</a>), from the
     method Vadim Zavalishin sets out in <em>The Art of VA Filter Design</em>.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="c">/// A state-variable filter (topology-preserving): low and band outputs.</span>
-<span class="a">#[derive(Default, Clone, Copy)]</span>
-<span class="k">pub</span> <span class="k">struct</span> <span class="t">Svf</span> {
-    a: <span class="t">f32</span>,
-    b: <span class="t">f32</span>,
-}
-
-<span class="k">impl</span> <span class="t">Svf</span> {
-    <span class="c">/// One step at `hz` with resonance `q`; returns (low, band).</span>
-    <span class="k">pub</span> <span class="k">fn</span> next(&amp;<span class="k">mut</span> <span class="k">self</span>, x: <span class="t">f32</span>, hz: <span class="t">f32</span>, q: <span class="t">f32</span>, rate: <span class="t">f32</span>) -&gt; (<span class="t">f32</span>, <span class="t">f32</span>) {
-        <span class="k">let</span> g = (<span class="t">PI</span> * hz.min(rate * <span class="n">0.45</span>) / rate).tan();
-        <span class="k">let</span> k = <span class="n">1.0</span> / q;
-        <span class="k">let</span> a1 = <span class="n">1.0</span> / (<span class="n">1.0</span> + g * (g + k));
-        <span class="k">let</span> a2 = g * a1;
-        <span class="k">let</span> a3 = g * a2;
-        <span class="k">let</span> v3 = x - <span class="k">self</span>.b;
-        <span class="k">let</span> v1 = a1 * <span class="k">self</span>.a + a2 * v3;
-        <span class="k">let</span> v2 = <span class="k">self</span>.b + a2 * <span class="k">self</span>.a + a3 * v3;
-        <span class="k">self</span>.a = <span class="n">2.0</span> * v1 - <span class="k">self</span>.a;
-        <span class="k">self</span>.b = <span class="n">2.0</span> * v2 - <span class="k">self</span>.b;
-        (v2, v1)
-    }
-}</code></pre></figure>
   <figure class="demo" data-demo="svf"><h3>Try it: noise through the filter</h3></figure>
   <p>Third, a shape in time. Real calls don't switch on and off; they swell and fade. One smooth bump,
     a <a class="term" href="#w-smoothstep">smoothstep</a> up and down, shapes nearly every note in the forest:</p>
   <div class="split">
-    <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="c">/// A smooth bump over `0..len`, rising and falling over `edge`.</span>
+    <details class="code"><summary><span class="code-what">The bump, in Rust</span><span class="code-meta">Rust · 11 lines</span></summary><div class="code-body"><p class="code-file"><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></p><pre><code><span class="c">/// A smooth bump over `0..len`, rising and falling over `edge`.</span>
 <span class="k">pub</span> <span class="k">fn</span> window(t: <span class="t">f32</span>, len: <span class="t">f32</span>, edge: <span class="t">f32</span>) -&gt; <span class="t">f32</span> {
     <span class="k">if</span> t &lt; <span class="n">0.0</span> || t &gt; len {
         <span class="k">return</span> <span class="n">0.0</span>;
@@ -311,7 +141,7 @@
     <span class="k">let</span> down = ((len - t) / e).min(<span class="n">1.0</span>);
     <span class="k">let</span> w = up.min(down);
     w * w * (<span class="n">3.0</span> - <span class="n">2.0</span> * w)
-}</code></pre></figure>
+}</code></pre></div></details>
     <figure class="plot"><svg id="bump-plot" viewBox="0 0 220 140" role="img" aria-label="The bump: rising smoothly, flat, then falling smoothly."></svg>
       <figcaption>window(t, 1, 0.3)</figcaption></figure>
   </div>
@@ -321,59 +151,30 @@
     let go: a creature's call is a gesture of known length, not a note someone holds. In signal
     processing terms it is a tapered window, of the same family as a
     <a href="https://en.wikipedia.org/wiki/Window_function#Tukey_window">Tukey window</a>.</p>
-  <p>Each creature is then two pieces of one <code>Call</code>: the dice, rolled once in
-    <code>Call::new</code>, and the sound, made a sample at a time in <code>Call::next</code>.</p>
+  <p>With those three, every creature is the same four steps: a <b>source</b> (a tone, a buzz, a
+    click, noise), a <b>shape in time</b> (when it sounds and how it swells), a <b>filter</b> that
+    colours it, and a <b>place</b> in the forest, near or far, left or right. The dice for all four
+    are rolled once, when a call begins; then the sound is made a sample at a time. The rest of this
+    page is eight such recipes.</p>
 </section>
 
 <section id="whistles">
   <h2>Whistles: songbird, cuckoo, owl</h2>
   <p>The three that sing share one engine: a list of notes, each a sweep from one pitch to another,
     played by a single sine. What makes them different is the notes they roll. A songbird throws a
-    quick phrase of short sweeps around one high pitch:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Song</span> =&gt; {
-    <span class="c">// A phrase of quick sweeps around one pitch.</span>
-    <span class="k">let</span> base = noise.between(<span class="n">2600.0</span>, <span class="n">4200.0</span>);
-    <span class="k">let</span> <span class="k">mut</span> at = <span class="n">0.0</span>;
-    <span class="k">for</span> _ <span class="k">in</span> <span class="n">0</span>..<span class="n">2</span> + (noise.unit() * <span class="n">5.0</span>) <span class="k">as</span> <span class="t">usize</span> {
-        <span class="k">let</span> up = noise.unit() &lt; <span class="n">0.5</span>;
-        <span class="k">let</span> len = noise.between(<span class="n">0.05</span>, <span class="n">0.12</span>);
-        <span class="k">let</span> span = noise.between(<span class="n">400.0</span>, <span class="n">1300.0</span>);
-        <span class="k">let</span> (from, to) = <span class="k">if</span> up { (base, base + span) } <span class="k">else</span> { (base + span, base) };
-        call.notes.push((at, len, from, to));
-        at += len + noise.between(<span class="n">0.03</span>, <span class="n">0.09</span>);
-    }
-    call.len = at;
-    call.gain *= <span class="n">0.7</span>;
-}</code></pre></figure>
-  <p>The cuckoo calls its falling third, two to four times, and always from a little way off:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Cuckoo</span> =&gt; {
-    <span class="c">// "Cu-ckoo", two to four times: a falling third.</span>
-    <span class="k">let</span> f = noise.between(<span class="n">600.0</span>, <span class="n">700.0</span>);
-    <span class="k">let</span> times = <span class="n">2</span> + (noise.unit() * <span class="n">3.0</span>) <span class="k">as</span> <span class="t">usize</span>;
-    <span class="k">for</span> i <span class="k">in</span> <span class="n">0</span>..times {
-        <span class="k">let</span> at = i <span class="k">as</span> <span class="t">f32</span> * <span class="n">0.78</span>;
-        call.notes.push((at, <span class="n">0.2</span>, f * <span class="n">1.01</span>, f));
-        call.notes.push((at + <span class="n">0.3</span>, <span class="n">0.32</span>, f * <span class="n">0.8</span>, f * <span class="n">0.78</span>));
-    }
-    call.len = times <span class="k">as</span> <span class="t">f32</span> * <span class="n">0.78</span>;
-    call.dull = call.dull.max(<span class="n">0.35</span>);
-}</code></pre></figure>
-  <p>And the tawny owl, the fog's creature, calls its "hoooo …… hu, hu-hu-hoooo":</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Owl</span> =&gt; {
-    <span class="c">// The tawny owl: "hoooo …… hu, hu-hu-hoooo", far off in the fog.</span>
-    <span class="k">let</span> f = noise.between(<span class="n">380.0</span>, <span class="n">440.0</span>);
-    call.notes = <span class="m">vec!</span>[
-        (<span class="n">0.0</span>, <span class="n">0.75</span>, f * <span class="n">0.97</span>, f),
-        (<span class="n">1.35</span>, <span class="n">0.16</span>, f * <span class="n">0.98</span>, f * <span class="n">0.96</span>),
-        (<span class="n">1.62</span>, <span class="n">1.15</span>, f, f * <span class="n">0.97</span>),
-    ];
-    call.len = <span class="n">2.8</span>;
-    call.dull = call.dull.max(<span class="n">0.45</span>);
-}</code></pre></figure>
-  <p>Then all three play through the same arm, each with its own timbre. The songbird is a bare sine
-    in an arch. The cuckoo adds a touch of its octave. The owl breathes, with noise through the filter
-    tuned to its octave, and its last note quavers as it starts:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Song</span> | <span class="t">Kind</span>::<span class="t">Cuckoo</span> | <span class="t">Kind</span>::<span class="t">Owl</span> =&gt; {
+    quick phrase of short sweeps around one high pitch. The cuckoo calls its falling third, two to
+    four times, always from a little way off. The tawny owl, the fog's creature, calls its
+    "hoooo …… hu, hu-hu-hoooo".</p>
+  <p>Each also has its own timbre. The songbird is a bare sine in an arch. The cuckoo adds a touch of
+    its octave. The owl breathes, with noise through the filter tuned to its octave, and its last note
+    quavers as it starts.</p>
+  <figure class="recipes" aria-label="The whistles' recipes">
+    <div class="recipe recipe-head" aria-hidden="true"><b class="recipe-name"></b><ol><li data-step="Source">Source</li><li data-step="Shape in time">Shape in time</li><li data-step="Filter">Filter</li><li data-step="Place">Place</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Songbird</b><ol><li data-step="Source">a sine, sweeping up or down 400–1300 Hz from 2.6–4.2 kHz</li><li data-step="Shape in time">2 to 6 quick notes, each an arch</li><li data-step="Filter">none: a bare tone</li><li data-step="Place">near or far, left or right</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Cuckoo</b><ol><li data-step="Source">a sine at 600–700 Hz, with a touch of its octave</li><li data-step="Shape in time">&quot;cu-ckoo&quot;, a falling third, 2 to 4 times</li><li data-step="Filter">none</li><li data-step="Place">always a little way off</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Tawny owl</b><ol><li data-step="Source">a sine at 380–440 Hz, and breath</li><li data-step="Shape in time">&quot;hoooo … hu, hu-hu-hoooo&quot;, the last note quavering</li><li data-step="Filter">breath through a band an octave up</li><li data-step="Place">further off, in the fog</li></ol></div>
+  </figure>
+  <details class="code"><summary><span class="code-what">The three voices, in Rust</span><span class="code-meta">Rust · 25 lines</span></summary><div class="code-body"><p class="code-file"><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></p><pre><code><span class="t">Kind</span>::<span class="t">Song</span> | <span class="t">Kind</span>::<span class="t">Cuckoo</span> | <span class="t">Kind</span>::<span class="t">Owl</span> =&gt; {
     <span class="k">let</span> <span class="t">Some</span>(&amp;(start, len, from, to)) =
         <span class="k">self</span>.notes.iter().find(|n| t &gt;= n.<span class="n">0</span> &amp;&amp; t &lt; n.<span class="n">0</span> + n.<span class="n">1</span>)
     <span class="k">else</span> {
@@ -397,66 +198,26 @@
             (p.sin() + breath) * window(u, <span class="n">1.0</span>, <span class="n">0.3</span>) * quaver
         }
     }
-}</code></pre></figure>
+}</code></pre></div></details>
   <div class="cue-row" data-kinds="Song Cuckoo Owl"></div>
 </section>
 
 <section id="knocks">
   <h2>Knocks and buzzes: woodpecker, bumblebee, crickets</h2>
   <p>A woodpecker's roll is a train of knocks, each a burst of filtered noise with a ring of the dead
-    wood's pitch, coming slightly faster as it goes and dying away:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Woodpecker</span> =&gt; {
-    <span class="c">// A drum roll on dead wood: quick knocks, quickening, dying away.</span>
-    call.count = noise.between(<span class="n">12.0</span>, <span class="n">22.0</span>).floor();
-    call.rate = noise.between(<span class="n">15.0</span>, <span class="n">22.0</span>);
-    call.pitch = noise.between(<span class="n">600.0</span>, <span class="n">900.0</span>);
-    call.len = call.count / call.rate + <span class="n">0.05</span>;
-}</code></pre></figure>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Woodpecker</span> =&gt; {
-    <span class="c">// Knocks come a little faster as the roll goes on.</span>
-    <span class="k">let</span> pos = t * <span class="k">self</span>.rate * (<span class="n">1.0</span> + <span class="n">0.15</span> * t);
-    <span class="k">let</span> i = pos.floor();
-    <span class="k">if</span> i &gt;= <span class="k">self</span>.count {
-        <span class="n">0.0</span>
-    } <span class="k">else</span> {
-        <span class="k">let</span> local = (pos - i) / (<span class="k">self</span>.rate * (<span class="n">1.0</span> + <span class="n">0.15</span> * t));
-        <span class="k">let</span> fade = <span class="n">1.0</span> - <span class="n">0.65</span> * i / <span class="k">self</span>.count;
-        <span class="k">let</span> knock = (-local / <span class="n">0.005</span>).exp();
-        <span class="k">let</span> wood = <span class="k">self</span>.filter.next(noise.next(), <span class="n">1600.0</span>, <span class="n">3.0</span>, rate).<span class="n">1</span> * <span class="n">2.0</span>;
-        <span class="k">let</span> ring = (<span class="t">TAU</span> * <span class="k">self</span>.pitch * local).sin() * <span class="n">0.6</span>;
-        (wood + ring) * knock * fade
-    }
-}</code></pre></figure>
+    wood's pitch, coming slightly faster as it goes and dying away.</p>
   <p>The bumblebee is the one creature that moves: it crosses from one side to the other, and its buzz
     (a <a class="term" href="#w-saw">sawtooth</a> through the filter's low-pass) falls a little in pitch as it passes (<a class="term" href="#w-doppler">the Doppler effect</a>), the way a passing
     car's does.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Bee</span> =&gt; {
-    <span class="c">// A bumblebee crossing, its buzz falling as it passes.</span>
-    call.pitch = noise.between(<span class="n">140.0</span>, <span class="n">190.0</span>);
-    call.len = noise.between(<span class="n">2.2</span>, <span class="n">3.4</span>);
-    <span class="k">let</span> side = <span class="k">if</span> noise.unit() &lt; <span class="n">0.5</span> { -<span class="n">1.0</span> } <span class="k">else</span> { <span class="n">1.0</span> };
-    call.pan = -<span class="n">0.85</span> * side;
-    call.pan_to = <span class="n">0.85</span> * side;
-    call.dull = <span class="n">0.0</span>;
-    call.gain *= <span class="n">0.55</span>;
-}</code></pre></figure>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Bee</span> =&gt; {
-    <span class="k">let</span> u = t / <span class="k">self</span>.len;
-    <span class="k">let</span> hz = <span class="k">self</span>.pitch * (<span class="n">1.08</span> - <span class="n">0.16</span> * u) * (<span class="n">1.0</span> + <span class="n">0.03</span> * (t * <span class="t">TAU</span> * <span class="n">5.0</span>).sin());
-    <span class="k">self</span>.phase = (<span class="k">self</span>.phase + hz * dt).fract();
-    <span class="k">let</span> saw = <span class="n">2.0</span> * <span class="k">self</span>.phase - <span class="n">1.0</span>;
-    <span class="k">let</span> body = <span class="k">self</span>.filter.next(saw, <span class="n">700.0</span>, <span class="n">1.2</span>, rate).<span class="n">0</span>;
-    body * (u * <span class="t">PI</span>).sin().powf(<span class="n">1.5</span>)
-}</code></pre></figure>
-  <p>Crickets are a high tone gated into chirps of three quick pulses, a few times a second:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Crickets</span> =&gt; {
-    <span class="k">let</span> chirp = (t * <span class="k">self</span>.rate).fract() / <span class="k">self</span>.rate;
-    <span class="k">let</span> pulse = (chirp / <span class="n">0.04</span>) <span class="k">as</span> <span class="t">usize</span>;
-    <span class="k">let</span> on = pulse &lt; <span class="n">3</span> &amp;&amp; (chirp % <span class="n">0.04</span>) &lt; <span class="n">0.025</span>;
-    <span class="k">self</span>.phase = (<span class="k">self</span>.phase + <span class="k">self</span>.pitch * dt).fract();
-    <span class="k">let</span> gate = <span class="k">if</span> on { window(chirp % <span class="n">0.04</span>, <span class="n">0.025</span>, <span class="n">0.005</span>) } <span class="k">else</span> { <span class="n">0.0</span> };
-    (<span class="k">self</span>.phase * <span class="t">TAU</span>).sin() * gate * window(t, <span class="k">self</span>.len, <span class="n">0.5</span>)
-}</code></pre></figure>
+  <p>Crickets are a high tone gated into chirps of three quick pulses, a few times a second.</p>
+  <figure class="recipes" aria-label="The knocks' and buzzes' recipes">
+    <div class="recipe recipe-head" aria-hidden="true"><b class="recipe-name"></b><ol><li data-step="Source">Source</li><li data-step="Shape in time">Shape in time</li><li data-step="Filter">Filter</li><li data-step="Place">Place</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Woodpecker</b><ol><li data-step="Source">a click of noise, and a 600–900 Hz ring of dead wood</li><li data-step="Shape in time">12 to 22 knocks, 15–22 a second, quickening and fading</li><li data-step="Filter">the click through a band at 1.6 kHz</li><li data-step="Place">near or far, left or right</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Bumblebee</b><ol><li data-step="Source">a sawtooth at 140–190 Hz, with a slow vibrato</li><li data-step="Shape in time">swells over 2–3.4 s, its pitch falling as it passes</li><li data-step="Filter">a low-pass at 700 Hz</li><li data-step="Place">close, crossing from one side to the other</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Crickets</b><ol><li data-step="Source">a pure tone at 4.1–4.7 kHz</li><li data-step="Shape in time">chirps of 3 pulses, about 3 a second, for 2.5–4 s</li><li data-step="Filter">none</li><li data-step="Place">near or far, left or right</li></ol></div>
+  </figure>
+  <p class="aside">All eight recipes are in <a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs"><code>wildlife.rs</code></a>:
+    the dice in <code>Call::new</code>, the sound in <code>Call::next</code>.</p>
   <div class="cue-row" data-kinds="Woodpecker Bee Crickets"></div>
 </section>
 
@@ -466,25 +227,6 @@
     clicks (<a class="term" href="#w-glottal">glottal pulses</a>, 26 to 38 a second) each ringing a narrow resonance for the throat and a
     broader one an octave down for the chest. Nothing in it is a tone; the pitch you hear is the
     resonance.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Frog</span> =&gt; {
-    <span class="k">let</span> croak = (t / <span class="n">0.62</span>).floor();
-    <span class="k">let</span> local = t - croak * <span class="n">0.62</span>;
-    <span class="k">let</span> on = croak &lt; <span class="k">self</span>.count &amp;&amp; local &lt; <span class="n">0.34</span>;
-    <span class="c">// A train of glottal pulses ringing a throat.</span>
-    <span class="k">let</span> pulse = (local * <span class="k">self</span>.rate) <span class="k">as</span> <span class="t">i32</span>;
-    <span class="k">let</span> kick = <span class="k">if</span> on &amp;&amp; pulse != <span class="k">self</span>.last_pulse {
-        <span class="k">self</span>.last_pulse = pulse;
-        <span class="n">1.0</span>
-    } <span class="k">else</span> {
-        <span class="n">0.0</span>
-    };
-    <span class="k">if</span> !on {
-        <span class="k">self</span>.last_pulse = -<span class="n">1</span>;
-    }
-    <span class="k">let</span> throat = <span class="k">self</span>.filter.next(kick, <span class="k">self</span>.pitch, <span class="n">9.0</span>, rate).<span class="n">1</span>;
-    <span class="k">let</span> chest = <span class="k">self</span>.filter2.next(kick, <span class="k">self</span>.pitch * <span class="n">0.5</span>, <span class="n">5.0</span>, rate).<span class="n">1</span>;
-    (throat + chest * <span class="n">0.6</span>) * window(local, <span class="n">0.34</span>, <span class="n">0.04</span>)
-}</code></pre></figure>
   <p>The raven took the longest. Shaping a voice like the frog's, with pulses, <a class="term" href="#w-jitter">jitter</a> and the
     pitch slipping to half itself, kept sounding like a duck, or a kazoo. What finally worked is a
     synthesizer patch, from <a href="https://www.reddit.com/r/synthrecipes/comments/lt10s5/can_anyone_explain_how_to_achieve_a_synthetic/">a
@@ -492,8 +234,13 @@
     recording of real ravens</a>: a low sawtooth (about 110 Hz) <a class="term" href="#w-pitch-env">thrown up a fifth</a> in 15 ms and
     falling back over 150 ms, chopped by a fast, nearly square <a class="term" href="#w-tremolo">tremolo</a>, 55 times a second, the way
     a raven's throat flutters, its rate wavering so it never ticks like a machine. Then a strong
-    "ah" <a class="term" href="#w-formant">formant</a> at 1 kHz, a nasal edge just above it, and a lift at 2.5 to 4 kHz:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="t">Kind</span>::<span class="t">Raven</span> =&gt; {
+    "ah" <a class="term" href="#w-formant">formant</a> at 1 kHz, a nasal edge just above it, and a lift at 2.5 to 4 kHz.</p>
+  <figure class="recipes" aria-label="The throats' recipes">
+    <div class="recipe recipe-head" aria-hidden="true"><b class="recipe-name"></b><ol><li data-step="Source">Source</li><li data-step="Shape in time">Shape in time</li><li data-step="Filter">Filter</li><li data-step="Place">Place</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Frog</b><ol><li data-step="Source">clicks: glottal pulses, 26–38 a second</li><li data-step="Shape in time">2 to 4 croaks, a third of a second each</li><li data-step="Filter">a narrow throat at 380–520 Hz, a broad chest an octave down</li><li data-step="Place">near or far, left or right</li></ol></div>
+    <div class="recipe"><b class="recipe-name">Raven</b><ol><li data-step="Source">a sawtooth near 110 Hz, thrown up a fifth and falling back</li><li data-step="Shape in time">1 to 3 croaks of 0.4 s, chopped by a 55 Hz tremolo</li><li data-step="Filter">&quot;ah&quot; at 1 kHz, a nasal edge at 1.5 kHz, a lift at 2.5–4 kHz</li><li data-step="Place">near or far, left or right</li></ol></div>
+  </figure>
+  <details class="code"><summary><span class="code-what">The raven, in Rust</span><span class="code-meta">Rust · 32 lines</span></summary><div class="code-body"><p class="code-file"><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></p><pre><code><span class="t">Kind</span>::<span class="t">Raven</span> =&gt; {
     <span class="k">let</span> croak = (t / <span class="t">RAVEN_GAP</span>).floor();
     <span class="k">let</span> local = t - croak * <span class="t">RAVEN_GAP</span>;
     <span class="k">if</span> croak &gt;= <span class="k">self</span>.count || local &gt; <span class="t">RAVEN_CROAK</span> {
@@ -524,7 +271,7 @@
             + src * <span class="n">0.08</span>;
         ah * window(local, <span class="t">RAVEN_CROAK</span>, <span class="n">0.012</span>) * (<span class="n">1.0</span> - <span class="n">0.5</span> * local / <span class="t">RAVEN_CROAK</span>)
     }
-}</code></pre></figure>
+}</code></pre></div></details>
   <div class="cue-row" data-kinds="Frog Raven"></div>
 </section>
 
@@ -532,18 +279,8 @@
   <h2>Near and far</h2>
   <p>Every call, whatever made it, ends the same way. Each one rolled a distance (<code>dull</code>)
     when it began: far creatures are low-passed, because air and leaves take the highs first, and
-    quieter. Then an <a class="term" href="#w-pan">equal-power pan</a> puts it left or right, moving if it's the bee:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="c">// Far creatures are duller (a low-pass), and quieter.</span>
-<span class="k">let</span> near = <span class="n">1.0</span> - <span class="k">self</span>.dull;
-<span class="k">let</span> x = <span class="k">if</span> <span class="k">self</span>.dull &gt; <span class="n">0.01</span> {
-    <span class="k">self</span>.distance.next(x, <span class="n">9000.0</span> - <span class="n">7000.0</span> * <span class="k">self</span>.dull, <span class="n">0.7</span>, rate).<span class="n">0</span>
-} <span class="k">else</span> {
-    x
-};
-<span class="k">let</span> g = <span class="k">self</span>.gain * (<span class="n">0.35</span> + <span class="n">0.65</span> * near);
-<span class="k">let</span> pan = <span class="k">self</span>.pan + (<span class="k">self</span>.pan_to - <span class="k">self</span>.pan) * (t / <span class="k">self</span>.len);
-<span class="k">let</span> angle = (pan.clamp(-<span class="n">1.0</span>, <span class="n">1.0</span>) + <span class="n">1.0</span>) * std::<span class="t">f32</span>::consts::<span class="t">FRAC_PI_4</span>;
-<span class="t">Some</span>([x * g * angle.cos(), x * g * angle.sin()])</code></pre></figure>
+    quieter. Then an <a class="term" href="#w-pan">equal-power pan</a> puts it left or right, moving if it's the bee.
+    That's the <b>place</b> column in every recipe above.</p>
 </section>
 
 <section id="who">
@@ -551,35 +288,10 @@
   <p>A forest in the rain shouldn't sound like a forest in the sun. Each creature has a habitat: how
     much it likes rain, fog, mild weather and a clear sky. Frogs love rain, the owl only comes out in
     fog, bees and crickets want it mild.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="k">impl</span> <span class="t">Kind</span> {
-    <span class="k">pub</span> <span class="k">const</span> <span class="t">ALL</span>: [<span class="t">Kind</span>; <span class="n">8</span>] = [
-        <span class="t">Kind</span>::<span class="t">Song</span>,
-        <span class="t">Kind</span>::<span class="t">Cuckoo</span>,
-        <span class="t">Kind</span>::<span class="t">Woodpecker</span>,
-        <span class="t">Kind</span>::<span class="t">Bee</span>,
-        <span class="t">Kind</span>::<span class="t">Crickets</span>,
-        <span class="t">Kind</span>::<span class="t">Frog</span>,
-        <span class="t">Kind</span>::<span class="t">Owl</span>,
-        <span class="t">Kind</span>::<span class="t">Raven</span>,
-    ];
-
-    <span class="k">pub</span> <span class="k">fn</span> habitat(<span class="k">self</span>) -&gt; [<span class="t">f32</span>; <span class="n">4</span>] {
-        <span class="k">match</span> <span class="k">self</span> {
-            <span class="t">Kind</span>::<span class="t">Song</span> =&gt; [<span class="n">0.1</span>, <span class="n">0.0</span>, <span class="n">1.0</span>, <span class="n">0.8</span>],
-            <span class="t">Kind</span>::<span class="t">Cuckoo</span> =&gt; [<span class="n">0.0</span>, <span class="n">0.1</span>, <span class="n">0.6</span>, <span class="n">0.5</span>],
-            <span class="t">Kind</span>::<span class="t">Woodpecker</span> =&gt; [<span class="n">0.1</span>, <span class="n">0.4</span>, <span class="n">0.4</span>, <span class="n">0.6</span>],
-            <span class="t">Kind</span>::<span class="t">Bee</span> =&gt; [<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">0.6</span>, <span class="n">0.2</span>],
-            <span class="t">Kind</span>::<span class="t">Crickets</span> =&gt; [<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">0.6</span>, <span class="n">0.1</span>],
-            <span class="t">Kind</span>::<span class="t">Frog</span> =&gt; [<span class="n">1.0</span>, <span class="n">0.3</span>, <span class="n">0.0</span>, <span class="n">0.1</span>],
-            <span class="t">Kind</span>::<span class="t">Owl</span> =&gt; [<span class="n">0.1</span>, <span class="n">1.0</span>, <span class="n">0.0</span>, <span class="n">0.0</span>],
-            <span class="t">Kind</span>::<span class="t">Raven</span> =&gt; [<span class="n">0.4</span>, <span class="n">0.6</span>, <span class="n">0.1</span>, <span class="n">0.3</span>],
-        }
-    }
-}</code></pre></figure>
   <p>To choose who calls next, the forest weighs each creature by how well it suits the weather about,
     with one more rule: whoever just called is four times less likely to call again, so you rarely hear
     the same creature twice running. (The bars at the top of the page are these weights.)</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="c">/// Which creature calls next: weighted by how well the weather suits it,</span>
+  <details class="code"><summary><span class="code-what">Who calls next, in Rust</span><span class="code-meta">Rust · 20 lines</span></summary><div class="code-body"><p class="code-file"><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></p><pre><code><span class="c">/// Which creature calls next: weighted by how well the weather suits it,</span>
 <span class="c">/// and seldom the same one twice running.</span>
 <span class="k">pub</span> <span class="k">fn</span> choose(&amp;<span class="k">mut</span> <span class="k">self</span>) -&gt; <span class="t">Kind</span> {
     <span class="k">let</span> [rain, fog, mild] = <span class="k">self</span>.levels;
@@ -598,34 +310,9 @@
         pick -= w;
     }
     <span class="t">Kind</span>::<span class="t">Song</span>
-}</code></pre></figure>
+}</code></pre></div></details>
   <p>And when: every frame, a countdown. When it runs out, the next call comes, and the next wait is
     drawn between a third and nearly twice the mean, so calls neither queue up nor stall.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="k">pub</span> <span class="k">fn</span> next_frame(&amp;<span class="k">mut</span> <span class="k">self</span>) -&gt; [<span class="t">f32</span>; <span class="n">2</span>] {
-    <span class="k">if</span> <span class="k">self</span>.every &gt; <span class="n">0.0</span> {
-        <span class="k">self</span>.wait -= <span class="n">1.0</span> / <span class="k">self</span>.rate;
-        <span class="k">if</span> <span class="k">self</span>.wait &lt;= <span class="n">0.0</span> {
-            <span class="c">// Gaps of a third to twice the mean, so calls neither queue nor stall.</span>
-            <span class="k">self</span>.wait = <span class="k">self</span>.every * <span class="k">self</span>.noise.between(<span class="n">0.35</span>, <span class="n">1.65</span>);
-            <span class="k">let</span> kind = <span class="k">self</span>.choose();
-            <span class="k">self</span>.call(kind);
-        }
-    }
-    <span class="k">if</span> <span class="k">self</span>.calls.is_empty() {
-        <span class="k">return</span> [<span class="n">0.0</span>; <span class="n">2</span>];
-    }
-    <span class="k">let</span> <span class="k">mut</span> out = [<span class="n">0.0</span>; <span class="n">2</span>];
-    <span class="k">let</span> (noise, rate) = (&amp;<span class="k">mut</span> <span class="k">self</span>.noise, <span class="k">self</span>.rate);
-    <span class="k">self</span>.calls.retain_mut(|c| <span class="k">match</span> c.next(noise, rate) {
-        <span class="t">Some</span>([l, r]) =&gt; {
-            out[<span class="n">0</span>] += l;
-            out[<span class="n">1</span>] += r;
-            <span class="k">true</span>
-        }
-        <span class="t">None</span> =&gt; <span class="k">false</span>,
-    });
-    out
-}</code></pre></figure>
   <p>One honest note on the real-time rules: <code>Call::new</code> builds a small list of notes, an
     allocation on the audio thread. It happens a few times a minute, for a few bytes, and I've let it
     be. Everything per sample allocates nothing.</p>
@@ -669,30 +356,10 @@
     opened once, in an exclusive start-up system, and kept in the world as a non-send resource. Next
     to it goes a plain <code>Sound</code> resource holding the channel's sender: that is the only way
     the rest of the game reaches the audio.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/examples/bevy-forest/src/main.rs">examples/bevy-forest/src/main.rs</a></figcaption><pre><code><span class="k">impl</span> <span class="t">Plugin</span> <span class="k">for</span> <span class="t">SoundPlugin</span> {
-    <span class="k">fn</span> build(&amp;<span class="k">self</span>, app: &amp;<span class="k">mut</span> <span class="t">App</span>) {
-        app.init_resource::&lt;<span class="t">Sound</span>&gt;()
-            .add_systems(<span class="t">Startup</span>, open)
-            .add_systems(<span class="t">Update</span>, suspend);
-    }
-}</code></pre></figure>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/examples/bevy-forest/src/main.rs">examples/bevy-forest/src/main.rs</a></figcaption><pre><code><span class="c">/// Open the stream at start-up. An exclusive system: the stream isn't</span>
-<span class="c">/// `Send`, so it goes in as a non-send resource.</span>
-<span class="k">fn</span> open(world: &amp;<span class="k">mut</span> <span class="t">World</span>) {
-    <span class="k">let</span> (tx, rx) = mpsc::channel();
-    <span class="k">match</span> forest::device::open(rx) {
-        <span class="t">Ok</span>(stream) =&gt; world.insert_non_send(<span class="t">Stream</span>(stream)),
-        <span class="t">Err</span>(e) =&gt; {
-            <span class="m">warn!</span>(<span class="s">"no sound: {e}"</span>);
-            <span class="k">return</span>;
-        }
-    }
-    world.insert_resource(<span class="t">Sound</span> { desk: <span class="t">Some</span>(tx) });
-}</code></pre></figure>
   <p>The <code>Sound</code> resource is a thin set of methods that each send one command. If there's no
     audio device (or the game runs muted) the sender is <code>None</code>, and every method quietly
     does nothing, so no system ever has to ask.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/excerpts/sound.rs">excerpts/sound.rs</a></figcaption><pre><code><span class="c">/// The creatures about: they suit the weather (rain, fog, mild, 0 to 1</span>
+  <details class="code"><summary><span class="code-what">The game&#x27;s Sound resource, in Rust</span><span class="code-meta">Rust · 15 lines</span></summary><div class="code-body"><p class="code-file"><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/excerpts/sound.rs">excerpts/sound.rs</a></p><pre><code><span class="c">/// The creatures about: they suit the weather (rain, fog, mild, 0 to 1</span>
 <span class="c">/// each); one calls every `every` seconds or so (0: none), at `gain`.</span>
 <span class="k">pub</span> <span class="k">fn</span> wildlife(&amp;<span class="k">self</span>, levels: [<span class="t">f32</span>; <span class="n">3</span>], every: <span class="t">f32</span>, gain: <span class="t">f32</span>) {
     <span class="k">self</span>.send(<span class="t">Command</span>::<span class="t">Wildlife</span> {
@@ -706,7 +373,7 @@
     <span class="k">if</span> <span class="k">let</span> <span class="t">Some</span>(desk) = &amp;<span class="k">self</span>.desk {
         <span class="k">let</span> _ = desk.send(command);
     }
-}</code></pre></figure>
+}</code></pre></div></details>
 
   <h3>2. One system decides what the forest sounds like</h3>
   <p>The interesting part is on the game's side: working out what the forest <em>should</em> be. In
@@ -716,7 +383,7 @@
     more often. It hushes them behind a menu and once the game is over. It sends a command only when
     something actually changed, remembered in a <code>Local</code>, so the channel carries a handful
     of messages a game, not sixty a second.</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/excerpts/hooks.rs">excerpts/hooks.rs</a></figcaption><pre><code><span class="c">/// At the table, a creature calls every this many seconds or so, this loud: the</span>
+  <details class="code"><summary><span class="code-what">The game&#x27;s forest system, in Rust</span><span class="code-meta">Rust · 57 lines</span></summary><div class="code-body"><p class="code-file"><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/excerpts/hooks.rs">excerpts/hooks.rs</a></p><pre><code><span class="c">/// At the table, a creature calls every this many seconds or so, this loud: the</span>
 <span class="c">/// forest is about, not in the way.</span>
 <span class="k">const</span> <span class="t">TABLE_CALLS</span>: <span class="t">f32</span> = <span class="n">9.0</span>;
 <span class="k">const</span> <span class="t">TABLE_GAIN</span>: <span class="t">f32</span> = <span class="n">0.7</span>;
@@ -772,98 +439,28 @@
         };
         sound.wildlife(levels, <span class="k">if</span> on { every } <span class="k">else</span> { <span class="n">0.0</span> }, gain);
     }
-}</code></pre></figure>
+}</code></pre></div></details>
   <p>Leaving the table, a system on <code>OnExit</code> sends one last command, and the forest falls
-    quiet. The title screen has its own forest, busier and softer, following the weather that drifts
-    across the logo:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/excerpts/title.rs">excerpts/title.rs</a></figcaption><pre><code><span class="c">/// On the title, a creature calls every this many seconds or so, this loud,</span>
-<span class="c">/// and the weather is heard at this much of its strength: a bed under the menu.</span>
-<span class="k">const</span> <span class="t">TITLE_CALLS</span>: <span class="t">f32</span> = <span class="n">4.5</span>;
-<span class="k">const</span> <span class="t">TITLE_CALL_GAIN</span>: <span class="t">f32</span> = <span class="n">0.6</span>;
-
-<span class="c">/// Leaving the title, its weather falls quiet.</span>
-<span class="k">fn</span> hush(sound: <span class="t">Res</span>&lt;<span class="t">Sound</span>&gt;) {
-    sound.ambience([<span class="n">0.0</span>; <span class="n">3</span>]);
-    sound.wildlife([<span class="n">0.0</span>; <span class="n">3</span>], <span class="n">0.0</span>, <span class="n">1.0</span>);
-}</code></pre></figure>
+    quiet. The title screen has its own forest, busier and softer (a call every 4.5 seconds or so,
+    against the table's 9), following the weather that drifts across the logo.</p>
 
   <h3>3. The app's lifecycle</h3>
   <p>On an iPad, the game can be sent to the home screen at any moment. The stream should stop then,
-    and the synthesis with it. Bevy reports this as <code>AppLifecycle</code> messages:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/excerpts/sound.rs">excerpts/sound.rs</a></figcaption><pre><code><span class="c">/// In the background (the iPad's home screen) the stream stops, and the</span>
-<span class="c">/// synthesis with it; it starts again when the game comes back.</span>
-<span class="k">fn</span> suspend(
-    <span class="k">mut</span> lifecycle: <span class="t">MessageReader</span>&lt;bevy::window::<span class="t">AppLifecycle</span>&gt;,
-    stream: <span class="t">Option</span>&lt;<span class="t">NonSend</span>&lt;<span class="t">Stream</span>&gt;&gt;,
-) {
-    <span class="k">use</span> bevy::window::<span class="t">AppLifecycle</span>;
-    <span class="k">use</span> cpal::traits::<span class="t">StreamTrait</span>;
-    <span class="k">let</span> <span class="t">Some</span>(stream) = stream <span class="k">else</span> {
-        lifecycle.clear();
-        <span class="k">return</span>;
-    };
-    <span class="k">for</span> event <span class="k">in</span> lifecycle.read() {
-        <span class="k">let</span> result = <span class="k">match</span> event {
-            <span class="t">AppLifecycle</span>::<span class="t">WillSuspend</span> | <span class="t">AppLifecycle</span>::<span class="t">Suspended</span> =&gt; stream.<span class="n">0</span>.pause(),
-            <span class="t">AppLifecycle</span>::<span class="t">WillResume</span> | <span class="t">AppLifecycle</span>::<span class="t">Running</span> =&gt; stream.<span class="n">0</span>.play(),
-            <span class="t">AppLifecycle</span>::<span class="t">Idle</span> =&gt; <span class="t">Ok</span>(()),
-        };
-        <span class="k">if</span> <span class="k">let</span> <span class="t">Err</span>(e) = result {
-            <span class="m">warn!</span>(<span class="s">"sound stream: {e}"</span>);
-        }
-    }
-}</code></pre></figure>
+    and the synthesis with it. Bevy reports this as <code>AppLifecycle</code> messages, and one small
+    system pauses the stream when the app goes away and plays it again when it's back.</p>
   <p>That's the whole integration. It's in this repository as a small runnable Bevy app with the
     game's own numbers, where the keyboard stands in for the table:
     <code>cargo run -p bevy-forest --release</code>. Keys 1, 2, 3 and 0 set the weather, Space leans
-    in, M opens a "menu".</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/examples/bevy-forest/src/main.rs">examples/bevy-forest/src/main.rs</a></figcaption><pre><code><span class="c">/// The forest heard: its creatures suit the weather, come closer when you</span>
-<span class="c">/// look, and hush behind a menu. Runs every frame, tells the desk only when</span>
-<span class="c">/// something changed (the `Local` remembers what it last said).</span>
-<span class="k">fn</span> forest(sky: <span class="t">Res</span>&lt;<span class="t">Sky</span>&gt;, <span class="k">mut</span> told: <span class="t">Local</span>&lt;<span class="t">Option</span>&lt;([<span class="t">f32</span>; <span class="n">3</span>], <span class="t">bool</span>, <span class="t">bool</span>)&gt;&gt;, sound: <span class="t">Res</span>&lt;<span class="t">Sound</span>&gt;) {
-    <span class="k">let</span> on = !sky.menu;
-    <span class="k">let</span> now = (sky.levels, on, sky.close);
-    <span class="k">if</span> *told == <span class="t">Some</span>(now) {
-        <span class="k">return</span>;
-    }
-    *told = <span class="t">Some</span>(now);
-    <span class="k">let</span> (every, gain) = <span class="k">if</span> sky.close {
-        (<span class="t">LOOK_CALLS</span>, <span class="t">LOOK_GAIN</span>)
-    } <span class="k">else</span> {
-        (<span class="t">TABLE_CALLS</span>, <span class="t">TABLE_GAIN</span>)
-    };
-    sound.wildlife(sky.levels, <span class="k">if</span> on { every } <span class="k">else</span> { <span class="n">0.0</span> }, gain);
-}</code></pre></figure>
+    in, M opens a "menu". It all fits in <a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/examples/bevy-forest/src/main.rs">one
+    file</a>.</p>
 </section>
 
 <section id="tests">
   <h2>Testing a forest</h2>
   <p>You can't test that a cuckoo sounds like a cuckoo. You can test that the forest obeys the
-    weather, that every creature is heard and then stops, and that calls come about as often as
-    asked:</p>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="a">#[test]</span>
-<span class="k">pub</span> <span class="k">fn</span> the_weather_picks_the_creatures() {
-    <span class="k">let</span> count = |levels: [<span class="t">f32</span>; <span class="n">3</span>], kind: <span class="t">Kind</span>| {
-        <span class="k">let</span> <span class="k">mut</span> w = <span class="t">Wildlife</span>::new(<span class="t">RATE</span>);
-        w.set(levels, <span class="n">1.0</span>, <span class="n">1.0</span>);
-        (<span class="n">0</span>..<span class="n">400</span>).filter(|_| w.choose() == kind).count()
-    };
-    <span class="m">assert_eq!</span>(count([<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">1.0</span>], <span class="t">Kind</span>::<span class="t">Owl</span>), <span class="n">0</span>, <span class="s">"no owls on a sunny day"</span>);
-    <span class="m">assert_eq!</span>(count([<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">1.0</span>], <span class="t">Kind</span>::<span class="t">Frog</span>), <span class="n">0</span>, <span class="s">"nor frogs"</span>);
-    <span class="m">assert!</span>(count([<span class="n">0.0</span>, <span class="n">1.0</span>, <span class="n">0.0</span>], <span class="t">Kind</span>::<span class="t">Owl</span>) &gt; <span class="n">80</span>, <span class="s">"owls in the fog"</span>);
-    <span class="m">assert!</span>(count([<span class="n">1.0</span>, <span class="n">0.0</span>, <span class="n">0.0</span>], <span class="t">Kind</span>::<span class="t">Frog</span>) &gt; <span class="n">120</span>, <span class="s">"frogs in the rain"</span>);
-    <span class="m">assert!</span>(count([<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">0.0</span>], <span class="t">Kind</span>::<span class="t">Song</span>) &gt; <span class="n">60</span>, <span class="s">"birds under a clear sky"</span>);
-}</code></pre></figure>
-  <figure class="code"><figcaption><a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs">forest/src/wildlife.rs</a></figcaption><pre><code><span class="a">#[test]</span>
-<span class="k">pub</span> <span class="k">fn</span> calls_come_about_as_often_as_asked() {
-    <span class="k">let</span> <span class="k">mut</span> w = <span class="t">Wildlife</span>::new(<span class="t">RATE</span>);
-    w.set([<span class="n">0.0</span>, <span class="n">0.0</span>, <span class="n">1.0</span>], <span class="n">2.0</span>, <span class="n">1.0</span>);
-    <span class="k">for</span> _ <span class="k">in</span> <span class="n">0</span>..(<span class="t">RATE</span> <span class="k">as</span> <span class="t">usize</span> * <span class="n">60</span>) {
-        w.next_frame();
-    }
-    <span class="k">let</span> heard = w.called;
-    <span class="m">assert!</span>((<span class="n">15</span>..=<span class="n">45</span>).contains(&amp;heard), <span class="s">"about 30 calls a minute (heard {heard})"</span>);
-}</code></pre></figure>
+    weather (no owls on a sunny day, frogs in the rain), that every creature is heard and then stops,
+    and that calls come about as often as asked. The tests are at the end of
+    <a href="https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/forest/src/wildlife.rs"><code>wildlife.rs</code></a>.</p>
   <p>To actually listen, one more test writes every creature, and forty seconds of each weather's
     forest, to WAV files: <code>FOREST_WAV=/tmp/forest cargo test -p forest</code>.</p>
 </section>

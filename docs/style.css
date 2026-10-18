@@ -263,3 +263,40 @@ a.term:hover { color: var(--blue); text-decoration-color: var(--blue); }
 .big.quiet { background: var(--card); color: var(--ink); }
 .big.quiet:hover { background: var(--paper); color: var(--ink); }
 .hero-cta { justify-content: flex-start; margin: 22px 0 6px; }
+
+/* ---- code, folded: the text reads on without it ---- */
+details.code { margin: 14px 0; border: 1.5px solid var(--rule); border-radius: 10px; background: var(--card); }
+details.code > summary { list-style: none; cursor: pointer; display: flex; gap: 12px; align-items: baseline; justify-content: space-between; padding: 9px 14px; font-size: 0.92rem; }
+details.code > summary::-webkit-details-marker { display: none; }
+details.code > summary .code-what::before { content: "▸"; display: inline-block; width: 1.1em; color: var(--blue); transition: transform 120ms ease; }
+details.code[open] > summary .code-what::before { transform: rotate(90deg); }
+details.code > summary .code-what { font-weight: 700; color: var(--ink); }
+details.code > summary .code-meta { font: 0.78rem "JetBrains Mono", monospace; color: var(--ink-3); white-space: nowrap; }
+details.code > summary:hover .code-what { color: var(--blue); }
+details.code[open] { border-color: var(--ink); }
+.code-body { border-top: 1px solid var(--rule); background: var(--code-bg); border-radius: 0 0 10px 10px; }
+.code-file { margin: 0; padding: 8px 14px 0; font: 600 0.76rem "JetBrains Mono", monospace; }
+.code-file a { color: var(--ink-3); text-decoration: none; }
+.code-file a:hover { color: var(--blue); text-decoration: underline; }
+.code-body pre { margin: 0; padding: 10px 14px 14px; overflow-x: auto; max-height: 36em; }
+.code-body code { background: none; padding: 0; font-size: 0.8rem; line-height: 1.55; white-space: pre; }
+.split details.code { margin: 0; }
+
+/* ---- recipes: source, shape, filter, place ---- */
+.recipes { margin: 22px 0; display: grid; gap: 10px; }
+.recipe { display: grid; grid-template-columns: 7.5em repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch; }
+.recipe ol { display: contents; list-style: none; }
+.recipe-name { font-family: "Young Serif", Georgia, serif; font-weight: 400; font-size: 1rem; align-self: center; }
+.recipe li { position: relative; background: var(--card); border: 1.5px solid var(--ink); border-radius: 10px; padding: 8px 10px; font-size: 0.86rem; line-height: 1.4; color: var(--ink-2); }
+.recipe li + li::before { content: "→"; position: absolute; left: -11px; top: 50%; transform: translate(-50%, -50%); color: var(--ink-3); font-size: 0.9rem; }
+.recipe-head li { background: none; border: 0; padding: 0 10px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.recipe-head li + li::before { content: none; }
+@media (max-width: 700px) {
+  /* Each creature as a small card: its name, then its four stages two by two, each labelled. */
+  .recipe { display: block; }
+  .recipe.recipe-head { display: none; }
+  .recipe ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 6px 0 4px; padding: 0; }
+  .recipe-name { font-size: 1.1rem; }
+  .recipe li::before, .recipe li + li::before { content: attr(data-step); position: static; transform: none; display: block; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 2px; }
+}
+@media (prefers-reduced-motion: reduce) { details.code > summary .code-what::before { transition: none; } }

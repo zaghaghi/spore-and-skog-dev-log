@@ -12,6 +12,15 @@ article can't drift from the code it describes:
     {{file examples/forest-cpal/src/main.rs}}           a whole file
     {{gallery}}                                         the pictures tools/itch.py fetched
 
+Code is folded behind a toggle; " || " adds its caption:
+
+    {{item forest/src/wildlife.rs fn window || The bump, in Rust}}
+
+and two helpers for the prose around it:
+
+    {{src forest/src/wildlife.rs}}                      that file's address on GitHub
+    {{recipe Owl | a sine | its notes | breath | far}}  one row of a recipe diagram
+
 and the article's numbers come from data, not prose:
 
     {{stat kinds}}     site/stats.json (cargo run -p forest --release --bin stats)
@@ -141,10 +150,33 @@ def gallery() -> str:
     return "\n".join(out)
 
 
+REPO = "https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/"
+
+
+STAGES = ["Source", "Shape in time", "Filter", "Place"]
+
+
+def recipe(cells) -> str:
+    """One row of a recipe diagram: a name, then its stages in order."""
+    name, *stages = cells
+    # Each stage carries its column's name, for narrow screens where the header row is hidden.
+    steps = "".join(f'<li data-step="{col}">{html.escape(st)}</li>' for col, st in zip(STAGES, stages))
+    return f'<div class="recipe"><b class="recipe-name">{html.escape(name)}</b><ol>{steps}</ol></div>'
+
+
 def snippet(match: re.Match) -> str:
-    parts = match.group(1).split()
+    whole = match.group(1)
+    # A caption for the folded code, after "||": {{item path fn x || what it is}}
+    whole, _, caption = whole.partition(" || ")
+    parts = whole.split()
     if parts[0] == "gallery":
         return gallery()
+    if parts[0] == "src":
+        return REPO + parts[1]
+    if parts[0] == "recipehead":
+        return recipe(["", *STAGES]).replace('class="recipe"', 'class="recipe recipe-head" aria-hidden="true"', 1)
+    if parts[0] == "recipe":
+        return recipe([c.strip() for c in " ".join(parts[1:]).split(" | ")])
     if parts[0] in ("stat", "game"):
         values = data("stats" if parts[0] == "stat" else "game")
         if parts[1] not in values:
@@ -179,10 +211,14 @@ def snippet(match: re.Match) -> str:
         code = (ROOT / path).read_text().rstrip("\n")
     else:
         raise SystemExit(f"unknown snippet {match.group(0)}")
-    link = f"https://github.com/zaghaghi/spore-and-skog-dev-log/blob/main/{path}"
+    # Folded by default: the text reads on without it, the code is a click away.
+    n = code.count("\n") + 1
+    label = html.escape(caption) if caption else "The code"
     return (
-        f'<figure class="code"><figcaption><a href="{link}">{html.escape(path)}</a></figcaption>'
-        f'<pre><code>{highlight(code)}</code></pre></figure>'
+        f'<details class="code"><summary><span class="code-what">{label}</span>'
+        f'<span class="code-meta">Rust · {n} lines</span></summary>'
+        f'<div class="code-body"><p class="code-file"><a href="{REPO}{path}">{html.escape(path)}</a></p>'
+        f'<pre><code>{highlight(code)}</code></pre></div></details>'
     )
 
 
