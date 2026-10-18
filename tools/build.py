@@ -19,6 +19,7 @@ Code is folded behind a toggle; " || " adds its caption:
 and two helpers for the prose around it:
 
     {{src forest/src/wildlife.rs}}                      that file's address on GitHub
+    {{analytics}}                                       GoatCounter, if site/analytics.json has a code
     {{recipe Owl | a sine | its notes | breath | far}}  one row of a recipe diagram
 
 and the article's numbers come from data, not prose:
@@ -171,6 +172,18 @@ def snippet(match: re.Match) -> str:
     parts = whole.split()
     if parts[0] == "gallery":
         return gallery()
+    if parts[0] == "analytics":
+        # GoatCounter (no cookies), only once a site code is set in site/analytics.json.
+        code = data("analytics").get("goatcounter", "")
+        if not code:
+            return ""
+        return (f'<script data-goatcounter="https://{html.escape(code)}.goatcounter.com/count" '
+                'async src="https://gc.zgo.at/count.js"></script>')
+    if parts[0] == "analytics-note":
+        if not data("analytics").get("goatcounter", ""):
+            return ""
+        return ('<p>Visits are counted with <a href="https://www.goatcounter.com">GoatCounter</a>: '
+                'no cookies, nothing personal.</p>')
     if parts[0] == "src":
         return REPO + parts[1]
     if parts[0] == "recipehead":

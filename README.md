@@ -85,6 +85,13 @@ Every code block on the page is cut from the sources by `tools/build.py`, and CI
 page is out of date with them. `.github/workflows/pages.yml` tests, builds and publishes to
 GitHub Pages on every push to `main`.
 
+## Analytics
+
+The page counts visits with [GoatCounter](https://www.goatcounter.com) (no cookies), plus a few
+events: the play and beta buttons, stepping into the forest, playing a creature. It's off until a
+site code is set in `site/analytics.json` (`{"goatcounter": "your-code"}`); then rebuild with
+`python3 tools/build.py`.
+
 ## Licence
 
 MIT. The game's name and pictures belong to the game, and appear here to introduce it.

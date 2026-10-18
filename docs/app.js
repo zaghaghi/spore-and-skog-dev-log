@@ -105,6 +105,7 @@ function buildForest() {
   enter.addEventListener('click', async () => {
     await startAudio();
     inForest = !inForest;
+    if (inForest) track('forest-enter', 'Stepped into the forest');
     enter.textContent = inForest ? 'Step out' : 'Step into the forest';
     sendForest();
   });
@@ -330,6 +331,7 @@ function scopeFigure() {
 const variants = {};
 
 function callInto(fig, k) {
+  track('creature-play', 'Played a creature');
   return startAudio().then(() => {
     variants[k] = (variants[k] ?? -1) + 1;
     const stereo = take('render_call', k, variants[k]);
@@ -460,6 +462,18 @@ function drawStream() {
 }
 
 // ---- start ----------------------------------------------------------------------------------------------
+
+/** Count an event with GoatCounter, if it's on the page (no cookies); once per name per visit. */
+const counted = new Set();
+function track(name, title) {
+  if (counted.has(name)) return;
+  counted.add(name);
+  try {
+    window.goatcounter?.count?.({ path: name, title, event: true });
+  } catch {
+    // Counting is never worth breaking the page for.
+  }
+}
 
 /** Each term in the text shows its definition on hover, from "Words used here". */
 function defineTerms() {
