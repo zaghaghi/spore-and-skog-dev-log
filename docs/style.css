@@ -7,6 +7,7 @@
   --ink-3: #7a7468;
   --rule: #d6ccb8;
   --blue: #0072b2;
+  --on-accent: #ffffff;
   --vermilion: #d55e00;
   --pink: #cc79a7;
   --orange: #e69f00;
@@ -33,6 +34,7 @@
     --ink-3: #958d7d;
     --rule: #3a362f;
     --blue: #56b4e9;
+    --on-accent: #1b1a17;
     --vermilion: #ef7b2d;
     --code-bg: #201e1a;
     --c-comment: #8f887a;
@@ -57,6 +59,7 @@
   --ink-3: #958d7d;
   --rule: #3a362f;
   --blue: #56b4e9;
+  --on-accent: #1b1a17;
   --vermilion: #ef7b2d;
   --code-bg: #201e1a;
   --c-comment: #8f887a;
@@ -115,8 +118,8 @@ button, .big {
 button:hover, .big:hover { color: var(--ink); background: var(--paper); }
 button:active, .big:active, button.hit { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
-.big { font-size: 1.15rem; padding: 0.6em 1.2em; background: var(--blue); color: #fff; }
-.big:hover { background: var(--vermilion); color: #fff; }
+.big { font-size: 1.15rem; padding: 0.6em 1.2em; background: var(--blue); color: var(--on-accent); }
+.big:hover { background: var(--vermilion); color: var(--on-accent); }
 
 /* ---- the live forest ---- */
 .forest-section { margin-top: 32px; }
@@ -183,8 +186,8 @@ canvas.spec { height: 110px; margin-top: 6px; }
 .toggle { font-size: 0.9rem; display: flex; gap: 8px; align-items: center; color: var(--ink-2); }
 .toggle input { accent-color: var(--blue); width: 18px; height: 18px; }
 select { font: inherit; font-size: 0.9rem; background: var(--card); color: var(--ink); border: 2px solid var(--ink); border-radius: 8px; padding: 2px 6px; }
-.play { background: var(--blue); color: #fff; }
-.play:hover { background: var(--vermilion); color: #fff; }
+.play { background: var(--blue); color: var(--on-accent); }
+.play:hover { background: var(--vermilion); color: var(--on-accent); }
 .meta { font-size: 0.82rem; color: var(--ink-3); font-family: "JetBrains Mono", monospace; }
 
 /* ---- code ---- */
@@ -259,3 +262,4 @@ a.term:hover { color: var(--blue); text-decoration-color: var(--blue); }
 .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 .big.quiet { background: var(--card); color: var(--ink); }
 .big.quiet:hover { background: var(--paper); color: var(--ink); }
+.hero-cta { justify-content: flex-start; margin: 22px 0 6px; }
