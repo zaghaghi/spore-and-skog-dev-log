@@ -245,3 +245,17 @@ figure.code code { background: none; padding: 0; font-size: 0.8rem; line-height:
   .odd .bar i { transition: none; }
   button, .big { transition: none; }
 }
+
+/* ---- words used here, and further reading ---- */
+a.term { color: inherit; text-decoration: underline dotted var(--ink-3); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+a.term:hover { color: var(--blue); text-decoration-color: var(--blue); }
+.glossary { display: grid; grid-template-columns: minmax(9em, 13em) minmax(0, 1fr); gap: 10px 20px; margin: 18px 0; }
+.glossary dt { font-family: "Young Serif", Georgia, serif; font-size: 1rem; line-height: 1.4; padding-top: 2px; }
+.glossary dd { margin: 0; font-size: 0.95rem; color: var(--ink-2); }
+.glossary dt:target, .glossary dt:target + dd { background: var(--code-bg); box-shadow: 0 0 0 6px var(--code-bg); border-radius: 4px; }
+@media (max-width: 560px) { .glossary { grid-template-columns: 1fr; gap: 2px; } .glossary dd { margin-bottom: 12px; } }
+.reading { padding-left: 1.1em; }
+.reading li { margin: 0.55em 0; }
+.cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.big.quiet { background: var(--card); color: var(--ink); }
+.big.quiet:hover { background: var(--paper); color: var(--ink); }

@@ -461,7 +461,17 @@ function drawStream() {
 
 // ---- start ----------------------------------------------------------------------------------------------
 
+/** Each term in the text shows its definition on hover, from "Words used here". */
+function defineTerms() {
+  document.querySelectorAll('a.term').forEach((a) => {
+    const dt = document.getElementById(a.hash.slice(1));
+    const dd = dt && dt.nextElementSibling;
+    if (dd) a.title = dd.textContent.replace(/\s+/g, ' ').trim();
+  });
+}
+
 async function main() {
+  defineTerms();
   try {
     await loadForest();
   } catch (err) {

@@ -11,6 +11,9 @@ plays behind the cards and follows the weather on the table.
 
 **The devlog, which you can listen to in the browser: https://zaghaghi.github.io/spore-and-skog-dev-log/**
 
+Play the game: [itch.io](https://xaghoul.itch.io/spore-and-skog), or the
+[TestFlight beta](https://testflight.apple.com/join/PXy2phyZ) on iPad and Mac.
+
 ## Try it
 
 ```sh

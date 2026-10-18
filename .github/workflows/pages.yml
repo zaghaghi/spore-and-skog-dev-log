@@ -41,6 +41,18 @@ jobs:
         with:
           path: docs
 
+  # Every link on the page, checked from GitHub's side (it doesn't hold up
+  # the deploy: some sites turn away robots).
+  links:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --accept 200,206,429 --max-retries 2 docs/index.html README.md
+          fail: true
+
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build

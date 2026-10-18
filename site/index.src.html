@@ -24,9 +24,9 @@
     <h1>A forest never recorded</h1>
     <p class="lede">Behind the cards of my game <a href="#the-game">Spore &amp; Skog</a> there is a forest:
       songbirds, a cuckoo, a woodpecker, a bumblebee, crickets, frogs in the rain, an owl in the fog,
-      ravens. None of them was recorded. Each call is made as it happens, sample by sample, by
+      ravens. None of them was recorded. Each call is made as it happens, <a class="term" href="#w-sample">sample</a> by sample, by
       {{stat lines}} lines of plain Rust running inside a <a href="https://github.com/RustAudio/cpal">CPAL</a>
-      audio callback, and the game's Bevy systems tell it what weather it is.</p>
+      <a class="term" href="#w-callback">audio callback</a>, and the game's Bevy systems tell it what weather it is.</p>
     <p class="lede">This page runs that same Rust, compiled to WebAssembly. Step in.</p>
     <p class="byline">by <a href="https://xaghoul.itch.io">xaghoul</a> · <time datetime="2026-10-17">17 October 2026</time> · Rust, CPAL, Bevy, DSP</p>
   </div>
@@ -66,6 +66,8 @@
     <li><a href="#who">Who calls, and when</a></li>
     <li><a href="#bevy">Into Bevy</a></li>
     <li><a href="#tests">Testing a forest</a></li>
+    <li><a href="#words">Words used here</a></li>
+    <li><a href="#read-more">Read more</a></li>
     <li><a href="#the-game">The game</a></li>
   </ol>
 </nav>
@@ -80,7 +82,7 @@
     at a time, on the audio thread, while you hear it. No two are the same, and there is nothing to
     store: the whole forest is {{stat kinds}} recipes and a little arithmetic per sample.</p>
   <p>Live synthesis has a cost the clips don't: it runs against the audio deadline. So the forest is
-    kept small. At most {{stat voices}} creatures call at once, each is a few oscillators and filters,
+    kept small. At most {{stat voices}} creatures call at once, each is a few <a class="term" href="#w-osc">oscillators</a> and <a class="term" href="#w-filter">filters</a>,
     and they sit well under everything else in the mix.</p>
   <div class="creatures" id="creatures"></div>
   <figure class="scope" id="call-scope">
@@ -100,7 +102,8 @@
     deadline and you hear a click.</p>
   <p>The game opens exactly one stream and puts a small mixer, the desk, in its callback. The rest
     of the game never touches the desk's state; it sends it commands over a channel, and the desk
-    reads them at the start of each buffer:</p>
+    reads them at the start of each buffer. Last in its chain is a <a class="term" href="#w-limiter">soft
+    limiter</a>, so a pile-up of calls never clips:</p>
   {{item forest/src/desk.rs enum Command}}
   {{item forest/src/desk.rs impl Desk}}
   <p>Opening the stream is the usual CPAL dance (host, device, config), with one generic function so
@@ -113,22 +116,31 @@
 
 <section id="tools">
   <h2>Three small tools</h2>
-  <p>Every creature is made from the same three things. First, noise: a xorshift generator, seeded,
+  <p>Every creature is made from the same three things. First, <a class="term" href="#w-noise">noise</a>: a <a href="https://www.jstatsoft.org/article/view/v008i14">xorshift</a> generator, seeded,
     so the forest is the same every time the game starts, and with helpers for the dice.</p>
   {{item forest/src/wildlife.rs struct Noise + impl Noise}}
   <p>Second, a filter. Birds are mostly pure tones, but a woodpecker's knock, a bee's body, a frog's
-    throat and a raven's croak are all <em>something buzzing through a resonance</em>. The tool for that
-    is a state-variable filter, here in its "topology-preserving" form: stable when its frequency
-    sweeps, cheap, and with a low-pass and a band-pass out of the same two lines of state.</p>
+    throat and a raven's croak are all <em>something buzzing through a <a class="term" href="#w-filter">resonance</a></em>. The tool for that
+    is a <a class="term" href="#w-svf">state-variable filter</a>, here in its "topology-preserving" form: stable when its frequency
+    sweeps, cheap, and with a low-pass and a band-pass out of the same two lines of state. Its
+    coefficients are Andrew Simper's
+    (<a href="https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf">Cytomic, 2013</a>), from the
+    method Vadim Zavalishin sets out in <em>The Art of VA Filter Design</em>.</p>
   {{item forest/src/wildlife.rs struct Svf + impl Svf}}
   <figure class="demo" data-demo="svf"><h3>Try it: noise through the filter</h3></figure>
   <p>Third, a shape in time. Real calls don't switch on and off; they swell and fade. One smooth bump,
-    a smoothstep up and down, shapes nearly every note in the forest:</p>
+    a <a class="term" href="#w-smoothstep">smoothstep</a> up and down, shapes nearly every note in the forest:</p>
   <div class="split">
     {{item forest/src/wildlife.rs fn window}}
     <figure class="plot"><svg id="bump-plot" viewBox="0 0 220 140" role="img" aria-label="The bump: rising smoothly, flat, then falling smoothly."></svg>
       <figcaption>window(t, 1, 0.3)</figcaption></figure>
   </div>
+  <p>If you know synthesizers, this is an <a class="term" href="#w-envelope">attack–hold–release envelope</a> with its corners rounded: it rises over <code>edge</code>,
+    holds at full, and falls over <code>edge</code>, all within a length fixed when the call begins.
+    Unlike an ADSR there is no separate decay to a sustain level, and nothing waits for a key to be
+    let go: a creature's call is a gesture of known length, not a note someone holds. In signal
+    processing terms it is a tapered window, of the same family as a
+    <a href="https://en.wikipedia.org/wiki/Window_function#Tukey_window">Tukey window</a>.</p>
   <p>Each creature is then two pieces of one <code>Call</code>: the dice, rolled once in
     <code>Call::new</code>, and the sound, made a sample at a time in <code>Call::next</code>.</p>
 </section>
@@ -157,7 +169,7 @@
   {{arm forest/src/wildlife.rs 1 Kind::Woodpecker}}
   {{arm forest/src/wildlife.rs 2 Kind::Woodpecker}}
   <p>The bumblebee is the one creature that moves: it crosses from one side to the other, and its buzz
-    (a sawtooth through the filter's low-pass) falls a little in pitch as it passes, the way a passing
+    (a <a class="term" href="#w-saw">sawtooth</a> through the filter's low-pass) falls a little in pitch as it passes (<a class="term" href="#w-doppler">the Doppler effect</a>), the way a passing
     car's does.</p>
   {{arm forest/src/wildlife.rs 1 Kind::Bee}}
   {{arm forest/src/wildlife.rs 2 Kind::Bee}}
@@ -168,17 +180,19 @@
 
 <section id="throats">
   <h2>Throats: frog and raven</h2>
-  <p>These two are made the way voices are: a source and a filter. A frog's croak is a train of
-    clicks (glottal pulses, 26 to 38 a second) each ringing a narrow resonance for the throat and a
+  <p>These two are made the way voices are: <a class="term" href="#w-source-filter">a source and a filter</a>. A frog's croak is a train of
+    clicks (<a class="term" href="#w-glottal">glottal pulses</a>, 26 to 38 a second) each ringing a narrow resonance for the throat and a
     broader one an octave down for the chest. Nothing in it is a tone; the pitch you hear is the
     resonance.</p>
   {{arm forest/src/wildlife.rs 2 Kind::Frog}}
-  <p>The raven took the longest. Shaping a voice like the frog's, with pulses, jitter and the
-    pitch slipping to half itself, kept sounding like a duck, or a kazoo. What finally worked is
-    closer to a synthesizer patch: a low sawtooth (about 110 Hz) thrown up a fifth in 15 ms and
-    falling back over 150 ms, chopped by a fast, nearly square tremolo, 55 times a second, the way
+  <p>The raven took the longest. Shaping a voice like the frog's, with pulses, <a class="term" href="#w-jitter">jitter</a> and the
+    pitch slipping to half itself, kept sounding like a duck, or a kazoo. What finally worked is a
+    synthesizer patch, from <a href="https://www.reddit.com/r/synthrecipes/comments/lt10s5/can_anyone_explain_how_to_achieve_a_synthetic/">a
+    reply on r/synthrecipes</a>, checked against <a href="https://www.youtube.com/watch?v=ePgdB5MqDxU">a
+    recording of real ravens</a>: a low sawtooth (about 110 Hz) <a class="term" href="#w-pitch-env">thrown up a fifth</a> in 15 ms and
+    falling back over 150 ms, chopped by a fast, nearly square <a class="term" href="#w-tremolo">tremolo</a>, 55 times a second, the way
     a raven's throat flutters, its rate wavering so it never ticks like a machine. Then a strong
-    "ah" at 1 kHz, a nasal edge just above it, and a lift at 2.5 to 4 kHz:</p>
+    "ah" <a class="term" href="#w-formant">formant</a> at 1 kHz, a nasal edge just above it, and a lift at 2.5 to 4 kHz:</p>
   {{arm forest/src/wildlife.rs 2 Kind::Raven}}
   <div class="cue-row" data-kinds="Frog Raven"></div>
 </section>
@@ -187,7 +201,7 @@
   <h2>Near and far</h2>
   <p>Every call, whatever made it, ends the same way. Each one rolled a distance (<code>dull</code>)
     when it began: far creatures are low-passed, because air and leaves take the highs first, and
-    quieter. Then an equal-power pan puts it left or right, moving if it's the bee:</p>
+    quieter. Then an <a class="term" href="#w-pan">equal-power pan</a> puts it left or right, moving if it's the bee:</p>
   {{lines forest/src/wildlife.rs // Far creatures are duller ~ Some([x * g * angle.cos()}}
 </section>
 
@@ -290,6 +304,89 @@
     forest, to WAV files: <code>FOREST_WAV=/tmp/forest cargo test -p forest</code>.</p>
 </section>
 
+<section id="words">
+  <h2>Words used here</h2>
+  <dl class="glossary">
+    <dt id="w-sample">Sample, sample rate</dt>
+    <dd>A sound in a computer is a list of numbers, each the air pressure at one instant: a sample. The forest is made at the output device's rate (often 48,000 samples a second); a <em>frame</em> is one sample for each channel, left and right.</dd>
+    <dt id="w-callback">Audio callback</dt>
+    <dd>The function the audio driver calls, again and again, to fill the next few milliseconds of samples. It runs on a real-time thread with a deadline: it must not wait on a lock, read a file or allocate much. See Ross Bencina's <a href="http://www.rossbencina.com/code/real-time-audio-programming-101-time-waits-for-nothing">Real-time audio programming 101</a>.</dd>
+    <dt id="w-osc">Oscillator, phase</dt>
+    <dd>A repeating wave, kept as a <em>phase</em> that climbs from 0 to 1 once per cycle (adding frequency ÷ sample rate each sample) and wraps. <code>sin(2π·phase)</code> is a sine; <code>2·phase − 1</code> a <a class="term" href="#w-saw">sawtooth</a>.</dd>
+    <dt id="w-saw">Sine, sawtooth, harmonics</dt>
+    <dd>A sine has one frequency. A sawtooth has every whole multiple of it (the <em>harmonics</em>), each weaker than the last: bright and buzzy, the raw material a filter carves into a voice. Too many high harmonics <a class="term" href="#w-alias">alias</a>.</dd>
+    <dt id="w-alias">Aliasing</dt>
+    <dd>A frequency above half the sample rate can't be stored; it folds back as a different, wrong one. One reason the forest builds bright sounds from filters and noise rather than piling up harmonics.</dd>
+    <dt id="w-noise">White noise</dt>
+    <dd>Random samples: every frequency at once, like a hiss. Filtered, it becomes breath, rasp, wind, the knock of wood.</dd>
+    <dt id="w-filter">Filter, resonance, Q</dt>
+    <dd>A filter lets some frequencies through and holds others back. A <em>low-pass</em> keeps the lows (a far sound, through leaves); a <em>band-pass</em> keeps a band around one frequency, and a sharp one <em>resonates</em>: kicked, it rings. <em>Q</em> is how sharp: centre frequency over bandwidth. High Q, a narrow band and a long ring. <a href="https://ccrma.stanford.edu/~jos/filters/">Julius O. Smith's book</a> is the free, thorough way in.</dd>
+    <dt id="w-svf">State-variable filter (SVF)</dt>
+    <dd>A filter built from two integrators in a loop, which gives low-pass, band-pass and high-pass outputs at once, and can sweep its frequency every sample without blowing up. The forest's is the "topology-preserving transform" form: <a href="https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf">Andrew Simper's paper</a> has the exact coefficients <code>Svf::next</code> uses.</dd>
+    <dt id="w-formant">Formant</dt>
+    <dd>A resonance of the throat and mouth (or a bird's), which stays put whatever the pitch. Formants are what tell an "ah" from an "oo": an "ah" has a strong one near 1 kHz. <a href="https://en.wikipedia.org/wiki/Formant">More</a>.</dd>
+    <dt id="w-source-filter">Source–filter</dt>
+    <dd>How voices are made, and modelled: a <em>source</em> (buzzing vocal folds, or a bird's syrinx) rich in harmonics, shaped by a <em>filter</em> (the throat and beak's <a class="term" href="#w-formant">formants</a>). Change the filter and the same buzz says a different vowel. <a href="https://en.wikipedia.org/wiki/Source%E2%80%93filter_model">More</a>.</dd>
+    <dt id="w-glottal">Glottal pulse</dt>
+    <dd>One puff of air through vocal folds as they snap open and shut. A train of them, at the voice's pitch, is the source a frog's croak is made from.</dd>
+    <dt id="w-envelope">Envelope, ADSR</dt>
+    <dd>How loudness (or anything else) changes over one sound. A synthesizer's <a href="https://en.wikipedia.org/wiki/Envelope_(music)">ADSR</a> rises (Attack), drops to a level (Decay, Sustain) and holds it while a key is down, then fades (Release). The forest's <code>window</code> is simpler: up, hold at full, down, over a length set in advance.</dd>
+    <dt id="w-smoothstep">Smoothstep</dt>
+    <dd><code>w² (3 − 2w)</code>: a ramp from 0 to 1 that starts and ends flat, so a sound swells in without a click. <a href="https://en.wikipedia.org/wiki/Smoothstep">More</a>.</dd>
+    <dt id="w-pitch-env">Pitch envelope</dt>
+    <dd>An <a class="term" href="#w-envelope">envelope</a> applied to pitch instead of loudness: here the raven's voice jumps up a fifth in 15 ms and falls back, without holding.</dd>
+    <dt id="w-tremolo">Tremolo, vibrato</dt>
+    <dd>A rhythmic wobble in loudness (tremolo) or in pitch (vibrato). The raven's throat is a fast tremolo, 55 times a second and nearly square; the bee's buzz has a slow vibrato.</dd>
+    <dt id="w-jitter">Jitter</dt>
+    <dd>Small random changes in the length of each cycle of a voice. A little sounds alive; a lot sounds rough or hoarse.</dd>
+    <dt id="w-doppler">Doppler effect</dt>
+    <dd>A sound coming toward you is a little higher, and drops as it passes and moves away. The bumblebee does a gentle version as it crosses.</dd>
+    <dt id="w-pan">Equal-power pan</dt>
+    <dd>Placing a mono sound between left and right with gains of cos and sin of one angle, so it stays as loud wherever it is put. <a href="https://en.wikipedia.org/wiki/Panning_law">More</a>.</dd>
+    <dt id="w-limiter">Soft limiter</dt>
+    <dd>The last stage of the desk: it leaves the signal alone below 0.8 and rounds louder peaks off with <code>tanh</code>, so many sounds at once never clip harshly.</dd>
+  </dl>
+</section>
+
+<section id="read-more">
+  <h2>Read more</h2>
+  <h3>Books</h3>
+  <ul class="reading">
+    <li>Andy Farnell, <a href="https://mitpress.mit.edu/9780262014410/designing-sound/"><em>Designing Sound</em></a> (MIT Press, 2010).
+      Procedural audio from first principles: real-world sounds, animals among them, built from oscillators, noise and filters.
+      The way of thinking this whole forest follows.</li>
+    <li>Vadim Zavalishin, <a href="https://www.native-instruments.com/fileadmin/ni_media/downloads/pdf/VAFilterDesign_2.1.0.pdf"><em>The Art of VA Filter Design</em></a> (Native Instruments, free).
+      The topology-preserving transform, and why the state-variable filter behaves when it's swept.</li>
+    <li>Julius O. Smith III, <a href="https://ccrma.stanford.edu/~jos/filters/"><em>Introduction to Digital Filters</em></a> and
+      <a href="https://ccrma.stanford.edu/~jos/pasp/"><em>Physical Audio Signal Processing</em></a> (CCRMA, free online).
+      Filters, resonators and physical models, thoroughly.</li>
+  </ul>
+  <h3>Papers and articles</h3>
+  <ul class="reading">
+    <li>Andrew Simper, <a href="https://cytomic.com/files/dsp/SvfLinearTrapOptimised2.pdf">Linear trapezoidal integrated state variable filter</a> (Cytomic, 2013).
+      The exact filter in <code>Svf::next</code>.</li>
+    <li>George Marsaglia, <a href="https://www.jstatsoft.org/article/view/v008i14">Xorshift RNGs</a>, <em>Journal of Statistical Software</em> 8(14), 2003.
+      The forest's noise and its dice.</li>
+    <li>Ross Bencina, <a href="http://www.rossbencina.com/code/real-time-audio-programming-101-time-waits-for-nothing">Real-time audio programming 101: time waits for nothing</a> (2011).
+      The rules the audio callback lives by.</li>
+    <li>Robert Bristow-Johnson, <a href="https://www.w3.org/TR/audio-eq-cookbook/">Audio EQ Cookbook</a> (W3C).
+      The band-pass behind the game's other sounds: wood, baskets, the fiddle's body.</li>
+  </ul>
+  <h3>For the raven, and the rest of the forest</h3>
+  <ul class="reading">
+    <li><a href="https://www.reddit.com/r/synthrecipes/comments/lt10s5/can_anyone_explain_how_to_achieve_a_synthetic/">A thread on r/synthrecipes</a>
+      about synthesizing a raven: the reply whose recipe (a fast tremolo, a pitch envelope, "ah" at 1 kHz, a lift at 2.5–4 kHz) the raven is built on.</li>
+    <li><a href="https://www.youtube.com/watch?v=ePgdB5MqDxU">The sounds of Ravens</a> (YouTube): the recording the raven's croaks were checked against.</li>
+    <li><a href="https://xeno-canto.org/species/Corvus-corax">xeno-canto</a>: thousands of wild bird recordings, ravens included, free to listen to and study.</li>
+  </ul>
+  <h3>Tools</h3>
+  <ul class="reading">
+    <li><a href="https://github.com/RustAudio/cpal">CPAL</a>, cross-platform audio output for Rust.</li>
+    <li><a href="https://bevyengine.org">Bevy</a>, the game engine.</li>
+    <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet">AudioWorklet</a> (MDN): how this page runs the forest in your browser.</li>
+  </ul>
+</section>
+
 <section id="the-game" class="game">
   <h2 class="shout">Hear it where it lives</h2>
   <p class="note">The code on this page is open-sourced from <b>Spore &amp; Skog: The Divine Forage</b>,
@@ -299,7 +396,11 @@
     Rival does. First to 35 mushrooms wins, and the forest you've been listening to is there the whole
     time, changing with every card.</p>
   {{gallery}}
-  <p class="cta"><a class="big" id="itch-link" href="https://xaghoul.itch.io/spore-and-skog">Play Spore &amp; Skog on itch.io</a></p>
+  <p class="cta">
+    <a class="big" id="itch-link" href="https://xaghoul.itch.io/spore-and-skog">Play on itch.io</a>
+    <a class="big quiet" id="testflight-link" href="https://testflight.apple.com/join/PXy2phyZ">Join the beta on iPad and Mac</a>
+  </p>
+  <p class="small">The beta is on Apple's TestFlight: install the TestFlight app, then open the link.</p>
   <p class="small">Made with Rust and Bevy. The forest's code, the desk and both examples are on
     <a href="https://github.com/zaghaghi/spore-and-skog-dev-log">GitHub</a> under the MIT licence.</p>
 </section>
