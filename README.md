@@ -92,6 +92,13 @@ events: the play and beta buttons, stepping into the forest, playing a creature.
 site code is set in `site/analytics.json` (`{"goatcounter": "your-code"}`); then rebuild with
 `python3 tools/build.py`.
 
+## Written with Claude
+
+This code was written with the help of [Claude](https://claude.ai), Anthropic's AI assistant. We
+decided not to put `noreply@anthropic.com` as a co-author on every commit, so this note stands in
+for those trailers: assume Claude had a hand in any of it. `.claude/settings.json` turns the
+trailers off for Claude Code sessions in this repository.
+
 ## Licence
 
 MIT. The game's name and pictures belong to the game, and appear here to introduce it.
