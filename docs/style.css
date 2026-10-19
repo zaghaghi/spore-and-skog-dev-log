@@ -263,6 +263,7 @@ a.term:hover { color: var(--blue); text-decoration-color: var(--blue); }
 .big.quiet { background: var(--card); color: var(--ink); }
 .big.quiet:hover { background: var(--paper); color: var(--ink); }
 .hero-cta { justify-content: flex-start; margin: 22px 0 6px; }
+.big .icon { width: 1em; height: 1em; vertical-align: -0.12em; margin-right: 0.45em; }
 
 /* ---- code, folded: the text reads on without it ---- */
 details.code { margin: 14px 0; border: 1.5px solid var(--rule); border-radius: 10px; background: var(--card); }
